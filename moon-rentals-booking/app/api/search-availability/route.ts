@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { vehicles } from '@/lib/vehicles';
 import { getBlocks } from '@/lib/blockStore';
+import { getBookings } from '@/lib/bookingStore';
 
 function isOverlapping(
   requestedStart: Date,
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     const blocks = await getBlocks();
+    const bookings = await getBookings();
 
     const availableVehicles = vehicles.filter((vehicle) => {
       if (!vehicle.isActive) return false;
@@ -57,7 +59,29 @@ export async function POST(req: NextRequest) {
         return isOverlapping(pickup, dropoff, blockStart, blockEnd);
       });
 
-      return !isBlocked;
+      if (isBlocked) return false;
+
+      const vehicleBookings = bookings.filter(
+        (booking) =>
+          booking.vehicleId === vehicle.id &&
+          booking.status !== 'cancelled'
+      );
+
+      const isBooked = vehicleBookings.some((booking) => {
+        const bookingStart = new Date(booking.pickupAt);
+        const bookingEnd = new Date(booking.returnAt);
+
+        if (
+          Number.isNaN(bookingStart.getTime()) ||
+          Number.isNaN(bookingEnd.getTime())
+        ) {
+          return false;
+        }
+
+        return isOverlapping(pickup, dropoff, bookingStart, bookingEnd);
+      });
+
+      return !isBooked;
     });
 
     return NextResponse.json({

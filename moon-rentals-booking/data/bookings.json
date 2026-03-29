@@ -1,0 +1,46 @@
+[
+  {
+    "id": 1,
+    "createdAt": "2026-03-29T17:25:22.104Z",
+    "vehicleId": 1,
+    "pickupAt": "2026-03-30T13:24",
+    "returnAt": "2026-03-31T13:24",
+    "fullName": "Paul Hogge",
+    "email": "paul.hogge@gmail.com",
+    "phone": "7576045402",
+    "status": "cancelled"
+  },
+  {
+    "id": 2,
+    "createdAt": "2026-03-29T17:27:54.524Z",
+    "vehicleId": 2,
+    "pickupAt": "2026-03-30T13:27",
+    "returnAt": "2026-03-31T13:27",
+    "fullName": "Paul Hogge",
+    "email": "paul.hogge@gmail.com",
+    "phone": "7576045402",
+    "status": "cancelled"
+  },
+  {
+    "id": 3,
+    "createdAt": "2026-03-29T17:28:17.691Z",
+    "vehicleId": 23,
+    "pickupAt": "2026-03-30T13:28",
+    "returnAt": "2026-03-31T13:28",
+    "fullName": "Paul Hogge",
+    "email": "paul.hogge@gmail.com",
+    "phone": "7576045402",
+    "status": "cancelled"
+  },
+  {
+    "id": 4,
+    "createdAt": "2026-03-29T17:55:21.756Z",
+    "vehicleId": 1,
+    "pickupAt": "2026-03-30T13:53",
+    "returnAt": "2026-03-31T13:53",
+    "fullName": "Paul Hogge",
+    "email": "paul.hogge@gmail.com",
+    "phone": "7576045402",
+    "status": "pending"
+  }
+]

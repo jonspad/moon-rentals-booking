@@ -1,9 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 
 type Vehicle = {
   id: number;
+  groupId: string;
+  color: string;
   slug: string;
   vin: string | null;
   year: number;
@@ -18,6 +21,21 @@ type Vehicle = {
   isActive: boolean;
 };
 
+type VehicleGroupResult = {
+  groupId: string;
+  make: string;
+  model: string;
+  category: string;
+  seats: number;
+  transmission: string;
+  pricePerDay: number;
+  image: string;
+  description: string;
+  availableCount: number;
+  availableColors: string[];
+  vehicles: Vehicle[];
+};
+
 export default function HomePage() {
   const [pickupAt, setPickupAt] = useState('');
   const [returnAt, setReturnAt] = useState('');
@@ -28,8 +46,57 @@ export default function HomePage() {
 
   const invalidDateRange = useMemo(() => {
     if (!pickupAt || !returnAt) return false;
-    return new Date(pickupAt) > new Date(returnAt);
+    return new Date(pickupAt) >= new Date(returnAt);
   }, [pickupAt, returnAt]);
+
+  const groupedVehicles = useMemo(() => {
+    const groups = new Map<string, VehicleGroupResult>();
+
+    for (const vehicle of vehicles) {
+      const existing = groups.get(vehicle.groupId);
+
+      if (!existing) {
+        groups.set(vehicle.groupId, {
+          groupId: vehicle.groupId,
+          make: vehicle.make,
+          model: vehicle.model,
+          category: vehicle.category,
+          seats: vehicle.seats,
+          transmission: vehicle.transmission,
+          pricePerDay: vehicle.pricePerDay,
+          image: vehicle.image,
+          description: vehicle.description,
+          availableCount: 1,
+          availableColors: vehicle.color && vehicle.color !== 'Unknown'
+            ? [vehicle.color]
+            : [],
+          vehicles: [vehicle],
+        });
+      } else {
+        existing.availableCount += 1;
+        existing.vehicles.push(vehicle);
+
+        if (
+          vehicle.color &&
+          vehicle.color !== 'Unknown' &&
+          !existing.availableColors.includes(vehicle.color)
+        ) {
+          existing.availableColors.push(vehicle.color);
+        }
+
+        if (vehicle.pricePerDay < existing.pricePerDay) {
+          existing.pricePerDay = vehicle.pricePerDay;
+        }
+      }
+    }
+
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.make !== b.make) {
+        return a.make.localeCompare(b.make);
+      }
+      return a.model.localeCompare(b.model);
+    });
+  }, [vehicles]);
 
   async function handleSearch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -39,8 +106,8 @@ export default function HomePage() {
       return;
     }
 
-    if (new Date(pickupAt) > new Date(returnAt)) {
-      setError('Return date/time must be the same as or later than pickup date/time.');
+    if (new Date(pickupAt) >= new Date(returnAt)) {
+      setError('Return date/time must be later than pickup date/time.');
       return;
     }
 
@@ -141,7 +208,7 @@ export default function HomePage() {
 
       {invalidDateRange && (
         <p className="mt-4 text-sm text-red-600">
-          Return date/time must be the same as or later than pickup date/time.
+          Return date/time must be later than pickup date/time.
         </p>
       )}
 
@@ -155,35 +222,52 @@ export default function HomePage() {
       )}
 
       <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {vehicles.map((vehicle) => (
-          <div key={vehicle.id} className="rounded-2xl border p-5">
-            {vehicle.image ? (
+        {groupedVehicles.map((group) => (
+          <div key={group.groupId} className="rounded-2xl border p-5">
+            {group.image ? (
               <img
-                src={vehicle.image}
-                alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+                src={group.image}
+                alt={`${group.make} ${group.model}`}
                 className="mb-4 h-48 w-full rounded-xl object-cover"
               />
             ) : null}
 
             <h2 className="text-xl font-semibold">
-              {vehicle.year} {vehicle.make} {vehicle.model}
+              {group.make} {group.model}
             </h2>
 
-            <p className="mt-1 text-sm text-gray-600">{vehicle.category}</p>
+            <p className="mt-1 text-sm text-gray-600">{group.category}</p>
 
             <p className="mt-3 text-sm">
-              {vehicle.seats} seats • {vehicle.transmission}
+              {group.seats} seats • {group.transmission}
             </p>
 
             <p className="mt-3 text-lg font-semibold">
-              ${vehicle.pricePerDay}/day
+              From ${group.pricePerDay}/day
             </p>
 
-            <p className="mt-3 text-sm text-gray-700">{vehicle.description}</p>
+            <p className="mt-3 text-sm text-gray-700">{group.description}</p>
 
-            <button className="mt-4 rounded-xl border px-4 py-2">
+            <p className="mt-3 text-sm text-gray-700">
+              <span className="font-medium">Available units:</span>{' '}
+              {group.availableCount}
+            </p>
+
+            <p className="mt-1 text-sm text-gray-700">
+              <span className="font-medium">Available colors:</span>{' '}
+              {group.availableColors.length > 0
+                ? group.availableColors.join(', ')
+                : 'Not specified'}
+            </p>
+
+            <Link
+              href={`/booking?groupId=${group.groupId}&pickupAt=${encodeURIComponent(
+                pickupAt
+              )}&returnAt=${encodeURIComponent(returnAt)}`}
+              className="mt-4 inline-block rounded-xl border px-4 py-2"
+            >
               Select Vehicle
-            </button>
+            </Link>
           </div>
         ))}
       </section>
@@ -194,7 +278,7 @@ export default function HomePage() {
         </p>
       )}
 
-      {!loading && hasSearched && vehicles.length === 0 && !error && (
+      {!loading && hasSearched && groupedVehicles.length === 0 && !error && (
         <p className="mt-6 text-sm text-gray-500">
           No vehicles are available for the selected dates.
         </p>
