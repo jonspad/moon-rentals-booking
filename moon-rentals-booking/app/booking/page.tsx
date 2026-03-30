@@ -77,7 +77,7 @@ export default function BookingPage() {
 
   const groupSummaryVehicle = groupVehicles[0];
 
-  useMemo(() => {
+  useEffect(() => {
     async function loadAvailabilityData() {
       setLoadingAvailability(true);
       setError('');
@@ -231,7 +231,6 @@ export default function BookingPage() {
       setPhone('');
       setSelectedVehicleId('');
 
-      // refresh bookings so the just-booked unit disappears immediately
       const bookingsRes = await fetch('/api/bookings', { cache: 'no-store' });
       const bookingsText = await bookingsRes.text();
       const bookingsData = bookingsText ? JSON.parse(bookingsText) : {};
@@ -246,9 +245,9 @@ export default function BookingPage() {
 
   if (!groupId) {
     return (
-      <main className="mx-auto max-w-3xl px-6 py-12">
+      <main className="mx-auto max-w-3xl px-6 py-12 text-black dark:text-white">
         <h1 className="text-3xl font-bold">Booking</h1>
-        <p className="mt-4 text-red-600">
+        <p className="mt-4 text-red-600 dark:text-red-400">
           Missing vehicle group. Please go back and search again.
         </p>
       </main>
@@ -257,9 +256,9 @@ export default function BookingPage() {
 
   if (!groupSummaryVehicle) {
     return (
-      <main className="mx-auto max-w-3xl px-6 py-12">
+      <main className="mx-auto max-w-3xl px-6 py-12 text-black dark:text-white">
         <h1 className="text-3xl font-bold">Booking</h1>
-        <p className="mt-4 text-red-600">
+        <p className="mt-4 text-red-600 dark:text-red-400">
           Vehicle group not found.
         </p>
       </main>
@@ -268,9 +267,9 @@ export default function BookingPage() {
 
   if (!pickupAt || !returnAt) {
     return (
-      <main className="mx-auto max-w-3xl px-6 py-12">
+      <main className="mx-auto max-w-3xl px-6 py-12 text-black dark:text-white">
         <h1 className="text-3xl font-bold">Booking</h1>
-        <p className="mt-4 text-red-600">
+        <p className="mt-4 text-red-600 dark:text-red-400">
           Missing pickup or return date. Please go back and search again.
         </p>
       </main>
@@ -278,11 +277,11 @@ export default function BookingPage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
+    <main className="mx-auto max-w-5xl px-6 py-12 text-black dark:text-white">
       <h1 className="text-3xl font-bold">Complete Your Booking</h1>
 
       <div className="mt-8 grid gap-8 md:grid-cols-2">
-        <section className="rounded-2xl border p-6">
+        <section className="rounded-2xl border border-gray-300 bg-white p-6 text-black dark:border-gray-700 dark:bg-black dark:text-white">
           {groupSummaryVehicle.image ? (
             <img
               src={groupSummaryVehicle.image}
@@ -295,7 +294,7 @@ export default function BookingPage() {
             {groupSummaryVehicle.make} {groupSummaryVehicle.model}
           </h2>
 
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
             {groupSummaryVehicle.category}
           </p>
 
@@ -303,11 +302,11 @@ export default function BookingPage() {
             {groupSummaryVehicle.seats} seats • {groupSummaryVehicle.transmission}
           </p>
 
-          <p className="mt-3 text-sm text-gray-700">
+          <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">
             {groupSummaryVehicle.description}
           </p>
 
-          <div className="mt-6 space-y-2 rounded-xl bg-gray-50 p-4">
+          <div className="mt-6 space-y-2 rounded-xl bg-gray-100 p-4 text-black dark:bg-gray-800 dark:text-white">
             <p className="text-sm">
               <span className="font-medium">Pickup:</span> {pickupAt}
             </p>
@@ -327,13 +326,15 @@ export default function BookingPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border p-6">
+        <section className="rounded-2xl border border-gray-300 bg-white p-6 text-black dark:border-gray-700 dark:bg-black dark:text-white">
           <h2 className="text-xl font-semibold">Choose Your Vehicle</h2>
 
           {loadingAvailability ? (
-            <p className="mt-4 text-sm text-gray-600">Loading available units...</p>
+            <p className="mt-4 text-sm text-gray-600 dark:text-gray-300">
+              Loading available units...
+            </p>
           ) : availableVehicles.length === 0 ? (
-            <p className="mt-4 text-sm text-red-600">
+            <p className="mt-4 text-sm text-red-600 dark:text-red-400">
               No units in this vehicle pool are available for the selected dates.
             </p>
           ) : (
@@ -344,14 +345,14 @@ export default function BookingPage() {
               <select
                 value={selectedVehicleId}
                 onChange={(e) => setSelectedVehicleId(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 required
               >
                 <option value="">Select an available unit</option>
                 {availableVehicles.map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
-                    {vehicle.color !== 'Unknown' ? vehicle.color : 'Color not specified'}{' '}
-                    • Unit #{vehicle.id}
+                    {vehicle.color !== 'Unknown' ? vehicle.color : 'Color not specified'} •
+                    {' '}Unit #{vehicle.id}
                   </option>
                 ))}
               </select>
@@ -369,7 +370,7 @@ export default function BookingPage() {
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 required
               />
             </div>
@@ -380,7 +381,7 @@ export default function BookingPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 required
               />
             </div>
@@ -391,7 +392,7 @@ export default function BookingPage() {
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 required
               />
             </div>
@@ -399,14 +400,14 @@ export default function BookingPage() {
             <button
               type="submit"
               disabled={loadingSubmit || availableVehicles.length === 0}
-              className="w-full rounded-xl border px-4 py-2 font-medium disabled:opacity-50"
+              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-medium text-black disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
             >
               {loadingSubmit ? 'Submitting...' : 'Submit Booking Request'}
             </button>
           </form>
 
           {selectedVehicle && (
-            <p className="mt-4 text-sm text-gray-700">
+            <p className="mt-4 text-sm text-gray-700 dark:text-gray-300">
               Selected: {selectedVehicle.make} {selectedVehicle.model} —{' '}
               {selectedVehicle.color !== 'Unknown'
                 ? selectedVehicle.color
@@ -414,9 +415,11 @@ export default function BookingPage() {
             </p>
           )}
 
-          {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+          {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
           {successMessage && (
-            <p className="mt-4 text-sm text-green-600">{successMessage}</p>
+            <p className="mt-4 text-sm text-green-600 dark:text-green-400">
+              {successMessage}
+            </p>
           )}
         </section>
       </div>

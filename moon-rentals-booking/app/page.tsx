@@ -67,9 +67,8 @@ export default function HomePage() {
           image: vehicle.image,
           description: vehicle.description,
           availableCount: 1,
-          availableColors: vehicle.color && vehicle.color !== 'Unknown'
-            ? [vehicle.color]
-            : [],
+          availableColors:
+            vehicle.color && vehicle.color !== 'Unknown' ? [vehicle.color] : [],
           vehicles: [vehicle],
         });
       } else {
@@ -148,16 +147,16 @@ export default function HomePage() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-12">
+    <main className="mx-auto max-w-6xl px-6 py-12 text-black dark:text-white">
       <h1 className="text-3xl font-bold">Moon Rentals</h1>
 
-      <p className="mt-2 text-gray-600">
+      <p className="mt-2 text-gray-600 dark:text-gray-300">
         Select your dates to see available vehicles.
       </p>
 
       <form
         onSubmit={handleSearch}
-        className="mt-8 grid gap-4 rounded-2xl border p-6 md:grid-cols-4"
+        className="mt-8 grid gap-4 rounded-2xl border border-gray-300 p-6 dark:border-gray-700 md:grid-cols-4"
       >
         <div>
           <label className="mb-2 block text-sm font-medium">
@@ -167,7 +166,7 @@ export default function HomePage() {
             type="datetime-local"
             value={pickupAt}
             onChange={(e) => setPickupAt(e.target.value)}
-            className="w-full rounded-xl border px-3 py-2"
+            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
             required
           />
         </div>
@@ -180,7 +179,7 @@ export default function HomePage() {
             type="datetime-local"
             value={returnAt}
             onChange={(e) => setReturnAt(e.target.value)}
-            className="w-full rounded-xl border px-3 py-2"
+            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
             required
           />
         </div>
@@ -189,7 +188,7 @@ export default function HomePage() {
           <button
             type="submit"
             disabled={loading || invalidDateRange}
-            className="w-full rounded-xl border px-4 py-2 font-medium"
+            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-medium text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
           >
             {loading ? 'Searching...' : 'Search Availability'}
           </button>
@@ -199,7 +198,7 @@ export default function HomePage() {
           <button
             type="button"
             onClick={handleClear}
-            className="w-full rounded-xl border px-4 py-2 font-medium"
+            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-medium text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
           >
             Clear
           </button>
@@ -207,15 +206,15 @@ export default function HomePage() {
       </form>
 
       {invalidDateRange && (
-        <p className="mt-4 text-sm text-red-600">
+        <p className="mt-4 text-sm text-red-600 dark:text-red-400">
           Return date/time must be later than pickup date/time.
         </p>
       )}
 
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       {hasSearched && !error && !loading && (
-        <p className="mt-4 text-sm text-gray-600">
+        <p className="mt-4 text-sm text-gray-600 dark:text-gray-300">
           Search results for <span className="font-medium">{pickupAt}</span> to{' '}
           <span className="font-medium">{returnAt}</span>
         </p>
@@ -223,7 +222,10 @@ export default function HomePage() {
 
       <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {groupedVehicles.map((group) => (
-          <div key={group.groupId} className="rounded-2xl border p-5">
+          <div
+            key={group.groupId}
+            className="rounded-2xl border border-gray-300 bg-white p-5 text-black dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+          >
             {group.image ? (
               <img
                 src={group.image}
@@ -236,24 +238,24 @@ export default function HomePage() {
               {group.make} {group.model}
             </h2>
 
-            <p className="mt-1 text-sm text-gray-600">{group.category}</p>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{group.category}</p>
 
             <p className="mt-3 text-sm">
               {group.seats} seats • {group.transmission}
             </p>
 
-            <p className="mt-3 text-lg font-semibold">
+            <p className="mt-3 text-xl font-bold">
               From ${group.pricePerDay}/day
             </p>
 
-            <p className="mt-3 text-sm text-gray-700">{group.description}</p>
+            <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">{group.description}</p>
 
-            <p className="mt-3 text-sm text-gray-700">
+            <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">
               <span className="font-medium">Available units:</span>{' '}
               {group.availableCount}
             </p>
 
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
               <span className="font-medium">Available colors:</span>{' '}
               {group.availableColors.length > 0
                 ? group.availableColors.join(', ')
@@ -264,7 +266,7 @@ export default function HomePage() {
               href={`/booking?groupId=${group.groupId}&pickupAt=${encodeURIComponent(
                 pickupAt
               )}&returnAt=${encodeURIComponent(returnAt)}`}
-              className="mt-4 inline-block rounded-xl border px-4 py-2"
+              className="mt-4 inline-block rounded-xl border border-gray-300 bg-white px-4 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
             >
               Select Vehicle
             </Link>
@@ -273,13 +275,13 @@ export default function HomePage() {
       </section>
 
       {!loading && !hasSearched && !error && (
-        <p className="mt-6 text-sm text-gray-500">
+        <p className="mt-6 text-sm text-gray-500 dark:text-gray-400">
           No vehicles shown yet. Select dates to begin.
         </p>
       )}
 
       {!loading && hasSearched && groupedVehicles.length === 0 && !error && (
-        <p className="mt-6 text-sm text-gray-500">
+        <p className="mt-6 text-sm text-gray-500 dark:text-gray-400">
           No vehicles are available for the selected dates.
         </p>
       )}
