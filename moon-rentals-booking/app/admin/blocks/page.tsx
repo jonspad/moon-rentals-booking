@@ -26,6 +26,22 @@ type VehicleBlock = {
   reason: string;
 };
 
+function formatDateTime(value: string) {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export default function AdminBlocksPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [blocks, setBlocks] = useState<VehicleBlock[]>([]);
@@ -39,63 +55,45 @@ export default function AdminBlocksPage() {
   const [error, setError] = useState('');
 
   async function loadVehicles() {
-    try {
-      const res = await fetch('/api/vehicles', { cache: 'no-store' });
-      const rawText = await res.text();
+    const res = await fetch('/api/vehicles', { cache: 'no-store' });
+    const rawText = await res.text();
 
-      console.log('VEHICLES STATUS:', res.status);
-      console.log('VEHICLES RAW RESPONSE:', rawText);
-
-      if (!res.ok) {
-        throw new Error(`Failed to load vehicles: ${res.status}`);
-      }
-
-      if (!rawText) {
-        setVehicles([]);
-        return;
-      }
-
-      const data = JSON.parse(rawText);
-      setVehicles(Array.isArray(data.vehicles) ? data.vehicles : []);
-    } catch (err) {
-      console.error('Failed to load vehicles', err);
-      setError('Failed to load vehicles.');
+    if (!res.ok) {
+      throw new Error(`Failed to load vehicles: ${res.status}`);
     }
+
+    const data = rawText ? JSON.parse(rawText) : {};
+    setVehicles(Array.isArray(data.vehicles) ? data.vehicles : []);
   }
 
   async function loadBlocks() {
+    const res = await fetch('/api/vehicle-blocks', { cache: 'no-store' });
+    const rawText = await res.text();
+
+    if (!res.ok) {
+      throw new Error(`Failed to load blocks: ${res.status}`);
+    }
+
+    const data = rawText ? JSON.parse(rawText) : {};
+    setBlocks(Array.isArray(data.blocks) ? data.blocks : []);
+  }
+
+  async function refreshData() {
     try {
-      const res = await fetch('/api/vehicle-blocks', { cache: 'no-store' });
-      const rawText = await res.text();
-
-      console.log('BLOCKS STATUS:', res.status);
-      console.log('BLOCKS RAW RESPONSE:', rawText);
-
-      if (!res.ok) {
-        throw new Error(`Failed to load blocks: ${res.status}`);
-      }
-
-      if (!rawText) {
-        setBlocks([]);
-        return;
-      }
-
-      const data = JSON.parse(rawText);
-      setBlocks(Array.isArray(data.blocks) ? data.blocks : []);
+      setError('');
+      await Promise.all([loadVehicles(), loadBlocks()]);
     } catch (err) {
-      console.error('Failed to load blocks', err);
-      setError('Failed to load blocks.');
+      console.error('Failed to load blocks page data:', err);
+      setError('Failed to load vehicles or blocks.');
     }
   }
 
   useEffect(() => {
-    loadVehicles();
-    loadBlocks();
+    refreshData();
   }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-
     setLoading(true);
     setError('');
     setMessage('');
@@ -113,9 +111,6 @@ export default function AdminBlocksPage() {
       });
 
       const rawText = await res.text();
-      console.log('CREATE BLOCK STATUS:', res.status);
-      console.log('CREATE BLOCK RAW RESPONSE:', rawText);
-
       const data = rawText ? JSON.parse(rawText) : {};
 
       if (!res.ok) {
@@ -131,7 +126,7 @@ export default function AdminBlocksPage() {
       await loadBlocks();
     } catch (err) {
       console.error('Create block error:', err);
-      setError('Something went wrong.');
+      setError('Something went wrong while creating the block.');
     } finally {
       setLoading(false);
     }
@@ -149,9 +144,6 @@ export default function AdminBlocksPage() {
       });
 
       const rawText = await res.text();
-      console.log('DELETE BLOCK STATUS:', res.status);
-      console.log('DELETE BLOCK RAW RESPONSE:', rawText);
-
       const data = rawText ? JSON.parse(rawText) : {};
 
       if (!res.ok) {
@@ -163,7 +155,7 @@ export default function AdminBlocksPage() {
       await loadBlocks();
     } catch (err) {
       console.error('Delete block error:', err);
-      setError('Something went wrong while deleting.');
+      setError('Something went wrong while deleting the block.');
     } finally {
       setDeletingId(null);
     }
@@ -176,15 +168,15 @@ export default function AdminBlocksPage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
-      <h1 className="text-3xl font-bold">Admin - Vehicle Blocks</h1>
-      <p className="mt-2 text-gray-600">
+    <section>
+      <h2 className="text-2xl font-semibold">Vehicle Blocks</h2>
+      <p className="mt-2 text-gray-600 dark:text-gray-300">
         Add manual blockout dates so vehicles cannot be booked during those times.
       </p>
 
       <form
         onSubmit={handleSubmit}
-        className="mt-8 grid gap-4 rounded-2xl border p-6"
+        className="mt-8 grid gap-4 rounded-2xl border border-gray-300 bg-white p-6 dark:border-gray-700 dark:bg-gray-950 md:grid-cols-2"
       >
         <div>
           <label className="mb-2 block text-sm font-medium">Vehicle</label>
@@ -201,6 +193,17 @@ export default function AdminBlocksPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium">Reason</label>
+          <input
+            type="text"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="w-full rounded-xl border px-3 py-2"
+            placeholder="Maintenance, Turo booking, owner hold, etc."
+          />
         </div>
 
         <div>
@@ -225,65 +228,64 @@ export default function AdminBlocksPage() {
           />
         </div>
 
-        <div>
-          <label className="mb-2 block text-sm font-medium">Reason</label>
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="w-full rounded-xl border px-3 py-2"
-            placeholder="Maintenance, Turo booking, owner hold, etc."
-          />
-        </div>
-
-        <div>
+        <div className="md:col-span-2">
           <button
             type="submit"
             disabled={loading}
-            className="rounded-xl border px-4 py-2 font-medium"
+            className="rounded-xl border px-4 py-2 text-sm font-medium disabled:opacity-60"
           >
             {loading ? 'Saving...' : 'Add Block'}
           </button>
         </div>
       </form>
 
-      {message && <p className="mt-4 text-sm text-green-600">{message}</p>}
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {message ? <p className="mt-4 text-sm text-green-600">{message}</p> : null}
+      {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
 
-      <section className="mt-10">
-        <h2 className="text-2xl font-semibold">Current Blocks</h2>
+      <section className="mt-8">
+        <h3 className="text-xl font-semibold">Current Blocks</h3>
 
         <div className="mt-4 space-y-4">
           {blocks.length === 0 ? (
-            <p className="text-sm text-gray-500">No blocks added yet.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No blocks added yet.
+            </p>
           ) : (
             blocks.map((block) => (
               <div
                 key={block.id}
-                className="flex items-start justify-between gap-4 rounded-2xl border p-4"
+                className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950"
               >
-                <div>
-                  <p className="font-semibold">{getVehicleLabel(block.vehicleId)}</p>
-                  <p className="mt-1 text-sm text-gray-700">Start: {block.start}</p>
-                  <p className="text-sm text-gray-700">End: {block.end}</p>
-                  <p className="text-sm text-gray-700">
-                    Reason: {block.reason || 'Manual blockout'}
-                  </p>
-                </div>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h4 className="text-lg font-semibold">
+                      {getVehicleLabel(block.vehicleId)}
+                    </h4>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                      Start: {formatDateTime(block.start)}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      End: {formatDateTime(block.end)}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Reason: {block.reason || 'Manual blockout'}
+                    </p>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleDelete(block.id)}
-                  disabled={deletingId === block.id}
-                  className="rounded-xl border px-4 py-2 text-sm font-medium"
-                >
-                  {deletingId === block.id ? 'Deleting...' : 'Delete'}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(block.id)}
+                    disabled={deletingId === block.id}
+                    className="rounded-xl border px-4 py-2 text-sm font-medium disabled:opacity-60"
+                  >
+                    {deletingId === block.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
               </div>
             ))
           )}
         </div>
       </section>
-    </main>
+    </section>
   );
 }

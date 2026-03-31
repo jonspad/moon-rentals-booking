@@ -23,6 +23,8 @@ export default function AdminLayout({
 
       router.push('/admin/login');
       router.refresh();
+    } catch (error) {
+      console.error('Logout failed:', error);
     } finally {
       setLoggingOut(false);
     }
@@ -31,11 +33,12 @@ export default function AdminLayout({
   function navClass(href: string) {
     const active = pathname === href;
 
-    return `rounded-xl border px-4 py-2 text-sm font-medium transition ${
+    return [
+      'rounded-xl border px-4 py-2 text-sm font-medium transition',
       active
         ? 'border-black bg-black text-white dark:border-white dark:bg-white dark:text-black'
-        : 'border-gray-300 bg-white text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white'
-    }`;
+        : 'border-gray-300 bg-white text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white',
+    ].join(' ');
   }
 
   return (
@@ -44,7 +47,7 @@ export default function AdminLayout({
         <div>
           <h1 className="text-3xl font-bold">Admin</h1>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-            Manage bookings, blockouts, and inventory controls.
+            Manage bookings and manual vehicle blocks.
           </p>
         </div>
 
@@ -65,8 +68,8 @@ export default function AdminLayout({
         <Link href="/admin/bookings" className={navClass('/admin/bookings')}>
           Bookings
         </Link>
-        <Link href="/admin/blockouts" className={navClass('/admin/blockouts')}>
-          Blocked Dates
+        <Link href="/admin/blocks" className={navClass('/admin/blocks')}>
+          Vehicle Blocks
         </Link>
       </div>
 

@@ -1,76 +1,41 @@
-'use client';
-
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { ReactNode, useState } from 'react';
 
-export default function AdminLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
-  const pathname = usePathname();
-  const router = useRouter();
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  async function handleLogout() {
-    try {
-      setLoggingOut(true);
-
-      await fetch('/api/admin/logout', {
-        method: 'POST',
-      });
-
-      router.push('/admin/login');
-      router.refresh();
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-
-  function navClass(href: string) {
-    const active = pathname === href;
-
-    return `rounded-xl border px-4 py-2 text-sm font-medium transition ${
-      active
-        ? 'border-black bg-black text-white dark:border-white dark:bg-white dark:text-black'
-        : 'border-gray-300 bg-white text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white'
-    }`;
-  }
-
+export default function AdminPage() {
   return (
-    <main className="mx-auto max-w-6xl px-6 py-12 text-black dark:text-white">
-      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Admin</h1>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-            Manage bookings, blockouts, and inventory controls.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleLogout}
-          disabled={loggingOut}
-          className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-black disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950">
+        <h2 className="text-xl font-semibold">Bookings</h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          Review reservations and update booking status.
+        </p>
+        <Link
+          href="/admin/bookings"
+          className="mt-4 inline-block rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium dark:border-gray-700"
         >
-          {loggingOut ? 'Logging out...' : 'Logout'}
-        </button>
-      </div>
-
-      <div className="mb-8 flex flex-wrap gap-3">
-        <Link href="/admin" className={navClass('/admin')}>
-          Dashboard
-        </Link>
-        <Link href="/admin/bookings" className={navClass('/admin/bookings')}>
-          Bookings
-        </Link>
-        <Link href="/admin/blockouts" className={navClass('/admin/blockouts')}>
-          Blocked Dates
+          Open Bookings
         </Link>
       </div>
 
-      {children}
-    </main>
+      <div className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950">
+        <h2 className="text-xl font-semibold">Vehicle Blocks</h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          Add or remove manual blockouts that prevent bookings.
+        </p>
+        <Link
+          href="/admin/blocks"
+          className="mt-4 inline-block rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium dark:border-gray-700"
+        >
+          Manage Blocks
+        </Link>
+      </div>
+
+      <div className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950">
+        <h2 className="text-xl font-semibold">System Status</h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          Admin auth is enabled and customer availability is checked against
+          bookings and manual blocks.
+        </p>
+      </div>
+    </section>
   );
 }

@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 export default function AdminLoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-
   const from = searchParams.get('from') || '/admin';
 
   const [password, setPassword] = useState('');
@@ -21,7 +20,9 @@ export default function AdminLoginPage() {
     try {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ password }),
       });
 
@@ -34,7 +35,8 @@ export default function AdminLoginPage() {
 
       router.push(from);
       router.refresh();
-    } catch {
+    } catch (err) {
+      console.error('Admin login failed:', err);
       setError('Something went wrong while logging in.');
     } finally {
       setLoading(false);
@@ -42,8 +44,8 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-[70vh] max-w-md items-center px-6 py-12">
-      <div className="w-full rounded-2xl border border-gray-300 bg-white p-6 text-black dark:border-gray-700 dark:bg-gray-950 dark:text-white">
+    <main className="mx-auto flex min-h-[70vh] max-w-md items-center px-6 py-12 text-black dark:text-white">
+      <div className="w-full rounded-2xl border border-gray-300 bg-white p-6 dark:border-gray-700 dark:bg-gray-950">
         <h1 className="text-2xl font-bold">Admin Login</h1>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
           Enter the admin password to continue.
@@ -61,14 +63,14 @@ export default function AdminLoginPage() {
             />
           </div>
 
-          {error && (
+          {error ? (
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-          )}
+          ) : null}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-medium text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-medium text-black disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
