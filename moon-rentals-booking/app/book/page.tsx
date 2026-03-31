@@ -36,13 +36,72 @@ type VehicleGroupResult = {
   vehicles: Vehicle[];
 };
 
+type TimeOption = {
+  value: string;
+  label: string;
+};
+
+function generateTimeOptions(): TimeOption[] {
+  const options: TimeOption[] = [];
+
+  for (let hour = 0; hour < 24; hour++) {
+    for (const minute of [0, 30]) {
+      const value = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+      const ampm = hour < 12 ? 'AM' : 'PM';
+      const label = `${displayHour}:${String(minute).padStart(2, '0')} ${ampm}`;
+
+      options.push({ value, label });
+    }
+  }
+
+  return options;
+}
+
+function combineDateAndTime(date: string, time: string): string {
+  if (!date || !time) return '';
+  return `${date}T${time}`;
+}
+
+function formatDateTimeForDisplay(value: string): string {
+  if (!value) return '';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export default function BookPage() {
-  const [pickupAt, setPickupAt] = useState('');
-  const [returnAt, setReturnAt] = useState('');
+  const timeOptions = useMemo(() => generateTimeOptions(), []);
+
+  const [pickupDate, setPickupDate] = useState('');
+  const [pickupTime, setPickupTime] = useState('10:00');
+  const [returnDate, setReturnDate] = useState('');
+  const [returnTime, setReturnTime] = useState('10:30');
+
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const pickupAt = useMemo(
+    () => combineDateAndTime(pickupDate, pickupTime),
+    [pickupDate, pickupTime]
+  );
+
+  const returnAt = useMemo(
+    () => combineDateAndTime(returnDate, returnTime),
+    [returnDate, returnTime]
+  );
 
   const invalidDateRange = useMemo(() => {
     if (!pickupAt || !returnAt) return false;
@@ -139,8 +198,10 @@ export default function BookPage() {
   }
 
   function handleClear() {
-    setPickupAt('');
-    setReturnAt('');
+    setPickupDate('');
+    setPickupTime('10:00');
+    setReturnDate('');
+    setReturnTime('10:30');
     setVehicles([]);
     setError('');
     setHasSearched(false);
@@ -158,30 +219,58 @@ export default function BookPage() {
         onSubmit={handleSearch}
         className="mt-8 grid gap-4 rounded-2xl border border-gray-300 p-6 dark:border-gray-700 md:grid-cols-4"
       >
-        <div>
+        <div className="md:col-span-2">
           <label className="mb-2 block text-sm font-medium">
             Pickup Date &amp; Time
           </label>
-          <input
-            type="datetime-local"
-            value={pickupAt}
-            onChange={(e) => setPickupAt(e.target.value)}
-            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-            required
-          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <input
+              type="date"
+              value={pickupDate}
+              onChange={(e) => setPickupDate(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            />
+            <select
+              value={pickupTime}
+              onChange={(e) => setPickupTime(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            >
+              {timeOptions.map((option) => (
+                <option key={`pickup-${option.value}`} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div>
+        <div className="md:col-span-2">
           <label className="mb-2 block text-sm font-medium">
             Return Date &amp; Time
           </label>
-          <input
-            type="datetime-local"
-            value={returnAt}
-            onChange={(e) => setReturnAt(e.target.value)}
-            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-            required
-          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <input
+              type="date"
+              value={returnDate}
+              onChange={(e) => setReturnDate(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            />
+            <select
+              value={returnTime}
+              onChange={(e) => setReturnTime(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            >
+              {timeOptions.map((option) => (
+                <option key={`return-${option.value}`} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="flex items-end">
@@ -215,8 +304,9 @@ export default function BookPage() {
 
       {hasSearched && !error && !loading && (
         <p className="mt-4 text-sm text-gray-600 dark:text-gray-300">
-          Search results for <span className="font-medium">{pickupAt}</span> to{' '}
-          <span className="font-medium">{returnAt}</span>
+          Search results for{' '}
+          <span className="font-medium">{formatDateTimeForDisplay(pickupAt)}</span> to{' '}
+          <span className="font-medium">{formatDateTimeForDisplay(returnAt)}</span>
         </p>
       )}
 
@@ -244,15 +334,12 @@ export default function BookPage() {
               {group.seats} seats • {group.transmission}
             </p>
 
-            <p className="mt-3 text-xl font-bold">
-              From ${group.pricePerDay}/day
-            </p>
+            <p className="mt-3 text-xl font-bold">From ${group.pricePerDay}/day</p>
 
             <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">{group.description}</p>
 
             <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">
-              <span className="font-medium">Available units:</span>{' '}
-              {group.availableCount}
+              <span className="font-medium">Available units:</span> {group.availableCount}
             </p>
 
             <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">

@@ -151,6 +151,17 @@
     "fullName": "Paul Hogge",
     "email": "paul.hogge@gmail.com",
     "phone": "7576045402",
-    "status": "pending"
+    "status": "cancelled"
+  },
+  {
+    "id": 15,
+    "createdAt": "2026-03-31T19:34:40.305Z",
+    "vehicleId": 4,
+    "pickupAt": "2026-03-31T15:33",
+    "returnAt": "2026-04-01T15:33",
+    "fullName": "Paul Hogge",
+    "email": "paul.hogge@gmail.com",
+    "phone": "7576045402",
+    "status": "cancelled"
   }
 ]
