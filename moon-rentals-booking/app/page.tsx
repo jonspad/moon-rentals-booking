@@ -4,7 +4,6 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
       <section className="mx-auto max-w-6xl px-6 py-16">
-
         <div className="mt-16 grid gap-10 md:grid-cols-2 md:items-center">
           <div>
             <p className="text-sm font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -27,13 +26,6 @@ export default function HomePage() {
                 className="rounded-xl border border-gray-300 bg-black px-6 py-3 font-medium text-white dark:border-gray-700 dark:bg-white dark:text-black"
               >
                 Start Booking
-              </Link>
-
-              <Link
-                href="/admin/bookings"
-                className="rounded-xl border border-gray-300 px-6 py-3 font-medium dark:border-gray-700"
-              >
-                View Admin
               </Link>
             </div>
 
