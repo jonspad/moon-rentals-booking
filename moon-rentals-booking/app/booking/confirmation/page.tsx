@@ -1,62 +1,68 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
-export default function BookingConfirmation() {
-  const params = useSearchParams();
+export default function BookingConfirmationPage() {
+  const searchParams = useSearchParams();
 
-  const name = params.get('name');
-  const vehicle = params.get('vehicle');
-  const pickupAt = params.get('pickupAt');
-  const returnAt = params.get('returnAt');
+  const bookingId = searchParams.get('bookingId') || '';
+  const name = searchParams.get('name') || '';
+  const vehicle = searchParams.get('vehicle') || '';
+  const pickupAt = searchParams.get('pickupAt') || '';
+  const returnAt = searchParams.get('returnAt') || '';
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16 text-center">
-      <h1 className="text-4xl font-bold">Booking Request Submitted</h1>
+    <main className="mx-auto max-w-3xl px-6 py-16 text-black dark:text-white">
+      <div className="rounded-3xl border border-gray-300 bg-white p-8 dark:border-gray-700 dark:bg-black">
+        <h1 className="text-4xl font-bold">Booking Request Submitted</h1>
 
-      <p className="mt-4 text-gray-600 dark:text-gray-300">
-        Thank you{name ? `, ${name}` : ''}. Your request has been received.
-      </p>
+        <p className="mt-4 text-gray-600 dark:text-gray-300">
+          Thank you{name ? `, ${name}` : ''}. Your booking request has been received.
+        </p>
 
-      <div className="mt-10 rounded-2xl border border-gray-300 p-6 text-left dark:border-gray-700">
-        <h2 className="text-xl font-semibold">Booking Details</h2>
+        <div className="mt-8 rounded-2xl bg-gray-100 p-5 dark:bg-gray-800">
+          <h2 className="text-xl font-semibold">Booking Details</h2>
 
-        <div className="mt-4 space-y-2 text-sm">
-          {vehicle && (
+          <div className="mt-4 space-y-2 text-sm">
             <p>
-              <strong>Vehicle:</strong> {vehicle}
+              <span className="font-medium">Booking ID:</span>{' '}
+              {bookingId || 'Not available'}
             </p>
-          )}
-
-          {pickupAt && (
             <p>
-              <strong>Pickup:</strong> {pickupAt}
+              <span className="font-medium">Vehicle:</span>{' '}
+              {vehicle || 'Not provided'}
             </p>
-          )}
-
-          {returnAt && (
             <p>
-              <strong>Return:</strong> {returnAt}
+              <span className="font-medium">Pickup:</span>{' '}
+              {pickupAt || 'Not provided'}
             </p>
-          )}
+            <p>
+              <span className="font-medium">Return:</span>{' '}
+              {returnAt || 'Not provided'}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="mt-10 flex justify-center gap-4">
-        <Link
-          href="/"
-          className="rounded-xl border border-gray-300 px-6 py-3 dark:border-gray-700"
-        >
-          Back to Home
-        </Link>
+        <p className="mt-6 text-sm text-gray-600 dark:text-gray-300">
+          We have saved your request as pending. An admin can now review and confirm it.
+        </p>
 
-        <Link
-          href="/book"
-          className="rounded-xl border border-gray-300 px-6 py-3 dark:border-gray-700"
-        >
-          Book Another Vehicle
-        </Link>
+        <div className="mt-8 flex flex-wrap gap-4">
+          <Link
+            href="/"
+            className="rounded-xl border border-gray-300 px-5 py-3 font-medium dark:border-gray-700"
+          >
+            Back to Home
+          </Link>
+
+          <Link
+            href="/book"
+            className="rounded-xl border border-gray-300 px-5 py-3 font-medium dark:border-gray-700"
+          >
+            Book Another Vehicle
+          </Link>
+        </div>
       </div>
     </main>
   );

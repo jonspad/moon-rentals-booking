@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { vehicles } from '@/lib/vehicles';
 
 type Vehicle = {
@@ -52,7 +52,6 @@ function isOverlapping(
 }
 
 export default function BookingPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const groupId = searchParams.get('groupId') || '';
@@ -132,10 +131,7 @@ export default function BookingPage() {
         const blockStart = new Date(block.start);
         const blockEnd = new Date(block.end);
 
-        if (
-          Number.isNaN(blockStart.getTime()) ||
-          Number.isNaN(blockEnd.getTime())
-        ) {
+        if (Number.isNaN(blockStart.getTime()) || Number.isNaN(blockEnd.getTime())) {
           return false;
         }
 
@@ -151,10 +147,7 @@ export default function BookingPage() {
         const bookingStart = new Date(booking.pickupAt);
         const bookingEnd = new Date(booking.returnAt);
 
-        if (
-          Number.isNaN(bookingStart.getTime()) ||
-          Number.isNaN(bookingEnd.getTime())
-        ) {
+        if (Number.isNaN(bookingStart.getTime()) || Number.isNaN(bookingEnd.getTime())) {
           return false;
         }
 
@@ -184,8 +177,8 @@ export default function BookingPage() {
   const estimatedTotal = selectedVehicle
     ? totalDays * selectedVehicle.pricePerDay
     : groupSummaryVehicle
-    ? totalDays * groupSummaryVehicle.pricePerDay
-    : 0;
+      ? totalDays * groupSummaryVehicle.pricePerDay
+      : 0;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -223,25 +216,28 @@ export default function BookingPage() {
       }
 
       const selectedVehicleLabel = selectedVehicle
-        ? `${selectedVehicle.make} ${selectedVehicle.model} - ${
-            selectedVehicle.color !== 'Unknown'
-              ? selectedVehicle.color
-              : `Unit #${selectedVehicle.id}`
+        ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}${
+            selectedVehicle.color !== 'Unknown' ? ` - ${selectedVehicle.color}` : ''
           }`
-        : 'Vehicle';
+        : `${groupSummaryVehicle.year} ${groupSummaryVehicle.make} ${groupSummaryVehicle.model}`;
 
-      router.push(
-        `/booking/confirmation?name=${encodeURIComponent(
-          fullName
-        )}&vehicle=${encodeURIComponent(
-          selectedVehicleLabel
-        )}&pickupAt=${encodeURIComponent(
-          pickupAt
-        )}&returnAt=${encodeURIComponent(returnAt)}`
-      );
+      const params = new URLSearchParams({
+        bookingId: String(data.booking?.id ?? ''),
+        name: fullName,
+        vehicle: selectedVehicleLabel,
+        pickupAt,
+        returnAt,
+      });
+
+      window.location.href = `/booking/confirmation?${params.toString()}`;
+      return;
     } catch (err) {
       console.error('Booking submit error:', err);
-      setError('Something went wrong while submitting your booking.');
+      setError(
+        err instanceof Error
+          ? `Something went wrong while submitting your booking: ${err.message}`
+          : 'Something went wrong while submitting your booking.'
+      );
     } finally {
       setLoadingSubmit(false);
     }
@@ -262,9 +258,7 @@ export default function BookingPage() {
     return (
       <main className="mx-auto max-w-3xl px-6 py-12 text-black dark:text-white">
         <h1 className="text-3xl font-bold">Booking</h1>
-        <p className="mt-4 text-red-600 dark:text-red-400">
-          Vehicle group not found.
-        </p>
+        <p className="mt-4 text-red-600 dark:text-red-400">Vehicle group not found.</p>
       </main>
     );
   }
@@ -324,9 +318,7 @@ export default function BookingPage() {
               <span className="font-medium">Available units in pool:</span>{' '}
               {availableVehicles.length}
             </p>
-            <p className="text-lg font-semibold">
-              Estimated Total: ${estimatedTotal}
-            </p>
+            <p className="text-lg font-semibold">Estimated Total: ${estimatedTotal}</p>
           </div>
         </section>
 
@@ -343,9 +335,7 @@ export default function BookingPage() {
             </p>
           ) : (
             <div className="mt-4">
-              <label className="mb-2 block text-sm font-medium">
-                Available colors / units
-              </label>
+              <label className="mb-2 block text-sm font-medium">Available colors / units</label>
               <select
                 value={selectedVehicleId}
                 onChange={(e) => setSelectedVehicleId(e.target.value)}
@@ -355,7 +345,8 @@ export default function BookingPage() {
                 <option value="">Select an available unit</option>
                 {availableVehicles.map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
-                    {vehicle.color !== 'Unknown' ? vehicle.color : 'Color not specified'} • Unit #{vehicle.id}
+                    {vehicle.color !== 'Unknown' ? vehicle.color : 'Color not specified'} • Unit #
+                    {vehicle.id}
                   </option>
                 ))}
               </select>
@@ -366,9 +357,7 @@ export default function BookingPage() {
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
-              <label className="mb-2 block text-sm font-medium">
-                Full Name
-              </label>
+              <label className="mb-2 block text-sm font-medium">Full Name</label>
               <input
                 type="text"
                 value={fullName}
