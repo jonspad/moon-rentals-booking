@@ -13,6 +13,8 @@ export default function AdminLayout({
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
 
+  const isLoginPage = pathname === '/admin/login';
+
   async function handleLogout() {
     try {
       setLoggingOut(true);
@@ -41,6 +43,11 @@ export default function AdminLayout({
     ].join(' ');
   }
 
+  // 🔒 Hide admin UI completely on login page
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-6 py-12 text-black dark:text-white">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -65,9 +72,11 @@ export default function AdminLayout({
         <Link href="/admin" className={navClass('/admin')}>
           Dashboard
         </Link>
+
         <Link href="/admin/bookings" className={navClass('/admin/bookings')}>
           Bookings
         </Link>
+
         <Link href="/admin/blocks" className={navClass('/admin/blocks')}>
           Vehicle Blocks
         </Link>
