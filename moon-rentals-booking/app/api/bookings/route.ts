@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   addBooking,
+  deleteBooking,
   getBookings,
   updateBookingStatus,
 } from '@/lib/bookingStore';
@@ -51,11 +52,9 @@ export async function POST(req: NextRequest) {
     }
 
     const vehicle = vehicles.find((v) => v.id === vehicleId && v.isActive);
+
     if (!vehicle) {
-      return NextResponse.json(
-        { error: 'Vehicle not found.' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Vehicle not found.' }, { status: 404 });
     }
 
     const pickupDate = new Date(pickupAt);
@@ -182,6 +181,36 @@ export async function PATCH(req: NextRequest) {
     console.error('PATCH /api/bookings error:', error);
     return NextResponse.json(
       { error: 'Failed to update booking status.' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const id = req.nextUrl.searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'Booking id is required.' },
+        { status: 400 }
+      );
+    }
+
+    const deleted = await deleteBooking(Number(id));
+
+    if (!deleted) {
+      return NextResponse.json(
+        { error: 'Booking not found.' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('DELETE /api/bookings error:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete booking.' },
       { status: 500 }
     );
   }

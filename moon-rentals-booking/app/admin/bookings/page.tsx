@@ -52,6 +52,7 @@ export default function AdminBookingsPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function loadBookings() {
@@ -106,7 +107,9 @@ export default function AdminBookingsPage() {
     try {
       const res = await fetch('/api/bookings', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           id: bookingId,
           status,
@@ -131,9 +134,46 @@ export default function AdminBookingsPage() {
     }
   }
 
+  async function deleteBooking(bookingId: number) {
+    const confirmed = window.confirm(
+      `Delete booking #${bookingId}? This cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingId(bookingId);
+    setError('');
+    setMessage('');
+
+    try {
+      const res = await fetch(`/api/bookings?id=${bookingId}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+      });
+
+      const rawText = await res.text();
+      const data = rawText ? JSON.parse(rawText) : {};
+
+      if (!res.ok) {
+        setError(data.error || 'Failed to delete booking.');
+        return;
+      }
+
+      setMessage(`Booking #${bookingId} deleted successfully.`);
+      await loadBookings();
+    } catch (err) {
+      console.error('Failed to delete booking:', err);
+      setError('Failed to delete booking.');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   function getVehicleLabel(vehicleId: number) {
     const vehicle = vehicles.find((v) => v.id === vehicleId);
+
     if (!vehicle) return `Vehicle ${vehicleId}`;
+
     return `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
   }
 
@@ -150,84 +190,104 @@ export default function AdminBookingsPage() {
   }
 
   return (
-    <section>
-      <h2 className="text-2xl font-semibold">Bookings</h2>
-      <p className="mt-2 text-gray-600 dark:text-gray-300">
-        Review customer booking requests and update status.
-      </p>
+    <section className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-semibold">Bookings</h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          Review customer booking requests, update status, or remove a booking.
+        </p>
+      </div>
 
-      {message ? <p className="mt-4 text-sm text-green-600">{message}</p> : null}
-      {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+      {message ? (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {message}
+        </div>
+      ) : null}
 
-      <div className="mt-8 space-y-4">
-        {loading ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Loading bookings...</p>
-        ) : bookings.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            No bookings found yet.
-          </p>
-        ) : (
-          bookings
-            .slice()
-            .sort(
-              (a, b) =>
-                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            )
-            .map((booking) => (
-              <div
-                key={booking.id}
-                className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <h3 className="text-xl font-semibold">
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+          Loading bookings...
+        </div>
+      ) : bookings.length === 0 ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+          No bookings found yet.
+        </div>
+      ) : (
+        bookings
+          .slice()
+          .sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )
+          .map((booking) => (
+            <div
+              key={booking.id}
+              className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950"
+            >
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h3 className="text-lg font-semibold">
                       {getVehicleLabel(booking.vehicleId)}
                     </h3>
-                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                    <span className="text-sm text-gray-500">
                       Booking #{booking.id}
-                    </p>
+                    </span>
+                    <span
+                      className={`rounded-full border px-3 py-1 text-xs font-medium ${getStatusClasses(
+                        booking.status
+                      )}`}
+                    >
+                      {booking.status}
+                    </span>
                   </div>
 
-                  <div
-                    className={`rounded-xl border px-3 py-1 text-sm font-medium ${getStatusClasses(
-                      booking.status
-                    )}`}
-                  >
-                    {booking.status}
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <p className="text-sm">
-                      <span className="font-medium">Customer:</span>{' '}
+                  <div className="space-y-1 text-sm text-gray-600 dark:text-gray-300">
+                    <p>
+                      <span className="font-medium text-black dark:text-white">
+                        Customer:
+                      </span>{' '}
                       {booking.fullName}
                     </p>
-                    <p className="text-sm">
-                      <span className="font-medium">Email:</span> {booking.email}
+                    <p>
+                      <span className="font-medium text-black dark:text-white">
+                        Email:
+                      </span>{' '}
+                      {booking.email}
                     </p>
-                    <p className="text-sm">
-                      <span className="font-medium">Phone:</span> {booking.phone}
+                    <p>
+                      <span className="font-medium text-black dark:text-white">
+                        Phone:
+                      </span>{' '}
+                      {booking.phone}
                     </p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <p className="text-sm">
-                      <span className="font-medium">Pickup:</span>{' '}
+                    <p>
+                      <span className="font-medium text-black dark:text-white">
+                        Pickup:
+                      </span>{' '}
                       {formatDateTime(booking.pickupAt)}
                     </p>
-                    <p className="text-sm">
-                      <span className="font-medium">Return:</span>{' '}
+                    <p>
+                      <span className="font-medium text-black dark:text-white">
+                        Return:
+                      </span>{' '}
                       {formatDateTime(booking.returnAt)}
                     </p>
-                    <p className="text-sm">
-                      <span className="font-medium">Created:</span>{' '}
+                    <p>
+                      <span className="font-medium text-black dark:text-white">
+                        Created:
+                      </span>{' '}
                       {formatDateTime(booking.createdAt)}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-5 flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => updateStatus(booking.id, 'confirmed')}
@@ -260,11 +320,20 @@ export default function AdminBookingsPage() {
                       ? 'Updating...'
                       : 'Mark Pending'}
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => deleteBooking(booking.id)}
+                    disabled={deletingId === booking.id}
+                    className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
+                  >
+                    {deletingId === booking.id ? 'Deleting...' : 'Delete'}
+                  </button>
                 </div>
               </div>
-            ))
-        )}
-      </div>
+            </div>
+          ))
+      )}
     </section>
   );
 }

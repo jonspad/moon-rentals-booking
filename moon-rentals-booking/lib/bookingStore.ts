@@ -49,7 +49,6 @@ export async function addBooking(
   booking: Omit<Booking, 'id' | 'createdAt'>
 ): Promise<Booking> {
   const bookings = await getBookings();
-
   const nextId =
     bookings.length > 0 ? Math.max(...bookings.map((b) => b.id)) + 1 : 1;
 
@@ -83,4 +82,16 @@ export async function updateBookingStatus(
 
   await saveBookings(bookings);
   return bookings[index];
+}
+
+export async function deleteBooking(id: number): Promise<boolean> {
+  const bookings = await getBookings();
+  const updatedBookings = bookings.filter((booking) => booking.id !== id);
+
+  if (updatedBookings.length === bookings.length) {
+    return false;
+  }
+
+  await saveBookings(updatedBookings);
+  return true;
 }

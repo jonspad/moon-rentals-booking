@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type Vehicle = {
   id: number;
@@ -26,7 +26,34 @@ type VehicleBlock = {
   reason: string;
 };
 
-function formatDateTime(value: string) {
+type TimeOption = {
+  value: string;
+  label: string;
+};
+
+function generateTimeOptions(): TimeOption[] {
+  const options: TimeOption[] = [];
+
+  for (let hour = 0; hour < 24; hour++) {
+    for (const minute of [0, 30]) {
+      const value = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+      const ampm = hour < 12 ? 'AM' : 'PM';
+      const label = `${displayHour}:${String(minute).padStart(2, '0')} ${ampm}`;
+
+      options.push({ value, label });
+    }
+  }
+
+  return options;
+}
+
+function combineDateAndTime(date: string, time: string): string {
+  if (!date || !time) return '';
+  return `${date}T${time}`;
+}
+
+function formatDateTime(value: string): string {
   const parsed = new Date(value);
 
   if (Number.isNaN(parsed.getTime())) {
@@ -43,16 +70,38 @@ function formatDateTime(value: string) {
 }
 
 export default function AdminBlocksPage() {
+  const timeOptions = useMemo(() => generateTimeOptions(), []);
+
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [blocks, setBlocks] = useState<VehicleBlock[]>([]);
+
   const [vehicleId, setVehicleId] = useState('');
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [startTime, setStartTime] = useState('10:00');
+  const [endDate, setEndDate] = useState('');
+  const [endTime, setEndTime] = useState('10:30');
   const [reason, setReason] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  const start = useMemo(
+    () => combineDateAndTime(startDate, startTime),
+    [startDate, startTime]
+  );
+
+  const end = useMemo(
+    () => combineDateAndTime(endDate, endTime),
+    [endDate, endTime]
+  );
+
+  const invalidDateRange = useMemo(() => {
+    if (!start || !end) return false;
+    return new Date(start) >= new Date(end);
+  }, [start, end]);
 
   async function loadVehicles() {
     const res = await fetch('/api/vehicles', { cache: 'no-store' });
@@ -80,11 +129,14 @@ export default function AdminBlocksPage() {
 
   async function refreshData() {
     try {
+      setPageLoading(true);
       setError('');
       await Promise.all([loadVehicles(), loadBlocks()]);
     } catch (err) {
-      console.error('Failed to load blocks page data:', err);
+      console.error('Failed to load admin blocks page data:', err);
       setError('Failed to load vehicles or blocks.');
+    } finally {
+      setPageLoading(false);
     }
   }
 
@@ -92,16 +144,28 @@ export default function AdminBlocksPage() {
     refreshData();
   }, []);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError('');
     setMessage('');
 
     try {
+      if (!vehicleId || !start || !end) {
+        setError('Vehicle, block start, and block end are required.');
+        return;
+      }
+
+      if (new Date(start) >= new Date(end)) {
+        setError('Block end must be later than block start.');
+        return;
+      }
+
       const res = await fetch('/api/vehicle-blocks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           vehicleId: Number(vehicleId),
           start,
@@ -120,19 +184,26 @@ export default function AdminBlocksPage() {
 
       setMessage('Block created successfully.');
       setVehicleId('');
-      setStart('');
-      setEnd('');
+      setStartDate('');
+      setStartTime('10:00');
+      setEndDate('');
+      setEndTime('10:30');
       setReason('');
+
       await loadBlocks();
     } catch (err) {
       console.error('Create block error:', err);
-      setError('Something went wrong while creating the block.');
+      setError('Something went wrong.');
     } finally {
       setLoading(false);
     }
   }
 
   async function handleDelete(blockId: number) {
+    const confirmed = window.confirm('Delete this vehicle block?');
+
+    if (!confirmed) return;
+
     setDeletingId(blockId);
     setError('');
     setMessage('');
@@ -155,7 +226,7 @@ export default function AdminBlocksPage() {
       await loadBlocks();
     } catch (err) {
       console.error('Delete block error:', err);
-      setError('Something went wrong while deleting the block.');
+      setError('Something went wrong while deleting.');
     } finally {
       setDeletingId(null);
     }
@@ -163,112 +234,174 @@ export default function AdminBlocksPage() {
 
   function getVehicleLabel(id: number) {
     const vehicle = vehicles.find((v) => v.id === id);
+
     if (!vehicle) return `Vehicle ${id}`;
+
     return `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
   }
 
   return (
-    <section>
-      <h2 className="text-2xl font-semibold">Vehicle Blocks</h2>
-      <p className="mt-2 text-gray-600 dark:text-gray-300">
-        Add manual blockout dates so vehicles cannot be booked during those times.
-      </p>
+    <section className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-semibold">Vehicle Blocks</h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          Add manual blockout dates so vehicles cannot be booked during those times.
+        </p>
+      </div>
 
       <form
         onSubmit={handleSubmit}
-        className="mt-8 grid gap-4 rounded-2xl border border-gray-300 bg-white p-6 dark:border-gray-700 dark:bg-gray-950 md:grid-cols-2"
+        className="space-y-6 rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950"
       >
-        <div>
-          <label className="mb-2 block text-sm font-medium">Vehicle</label>
-          <select
-            value={vehicleId}
-            onChange={(e) => setVehicleId(e.target.value)}
-            className="w-full rounded-xl border px-3 py-2"
-            required
-          >
-            <option value="">Select a vehicle</option>
-            {vehicles.map((vehicle) => (
-              <option key={vehicle.id} value={vehicle.id}>
-                {vehicle.year} {vehicle.make} {vehicle.model}
-              </option>
-            ))}
-          </select>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <label className="mb-2 block text-sm font-medium">Vehicle</label>
+            <select
+              value={vehicleId}
+              onChange={(e) => setVehicleId(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            >
+              <option value="">Select a vehicle</option>
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.year} {vehicle.make} {vehicle.model}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">Block Start Date</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">Block Start Time</label>
+            <select
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            >
+              {timeOptions.map((option) => (
+                <option key={`start-${option.value}`} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">Block End Date</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">Block End Time</label>
+            <select
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              required
+            >
+              {timeOptions.map((option) => (
+                <option key={`end-${option.value}`} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="mb-2 block text-sm font-medium">Reason</label>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              placeholder="Maintenance, Turo booking, owner hold, etc."
+            />
+          </div>
         </div>
 
-        <div>
-          <label className="mb-2 block text-sm font-medium">Reason</label>
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="w-full rounded-xl border px-3 py-2"
-            placeholder="Maintenance, Turo booking, owner hold, etc."
-          />
-        </div>
+        {invalidDateRange ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Block end must be later than block start.
+          </div>
+        ) : null}
 
-        <div>
-          <label className="mb-2 block text-sm font-medium">Block Start</label>
-          <input
-            type="datetime-local"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-            className="w-full rounded-xl border px-3 py-2"
-            required
-          />
-        </div>
+        {message ? (
+          <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {message}
+          </div>
+        ) : null}
 
-        <div>
-          <label className="mb-2 block text-sm font-medium">Block End</label>
-          <input
-            type="datetime-local"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            className="w-full rounded-xl border px-3 py-2"
-            required
-          />
-        </div>
+        {error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        ) : null}
 
-        <div className="md:col-span-2">
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-xl border px-4 py-2 text-sm font-medium disabled:opacity-60"
-          >
-            {loading ? 'Saving...' : 'Add Block'}
-          </button>
-        </div>
+        <button
+          type="submit"
+          disabled={loading || invalidDateRange}
+          className="rounded-xl border border-black bg-black px-5 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-white dark:bg-white dark:text-black"
+        >
+          {loading ? 'Saving...' : 'Add Block'}
+        </button>
       </form>
 
-      {message ? <p className="mt-4 text-sm text-green-600">{message}</p> : null}
-      {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
-
-      <section className="mt-8">
+      <div className="space-y-4">
         <h3 className="text-xl font-semibold">Current Blocks</h3>
 
-        <div className="mt-4 space-y-4">
-          {blocks.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              No blocks added yet.
-            </p>
-          ) : (
-            blocks.map((block) => (
+        {pageLoading ? (
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+            Loading blocks...
+          </div>
+        ) : blocks.length === 0 ? (
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+            No blocks added yet.
+          </div>
+        ) : (
+          blocks
+            .slice()
+            .sort(
+              (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime()
+            )
+            .map((block) => (
               <div
                 key={block.id}
-                className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950"
+                className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950"
               >
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
                     <h4 className="text-lg font-semibold">
                       {getVehicleLabel(block.vehicleId)}
                     </h4>
-                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                      Start: {formatDateTime(block.start)}
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      <span className="font-medium text-black dark:text-white">Start:</span>{' '}
+                      {formatDateTime(block.start)}
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-300">
-                      End: {formatDateTime(block.end)}
+                      <span className="font-medium text-black dark:text-white">End:</span>{' '}
+                      {formatDateTime(block.end)}
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-300">
-                      Reason: {block.reason || 'Manual blockout'}
+                      <span className="font-medium text-black dark:text-white">Reason:</span>{' '}
+                      {block.reason || 'Manual blockout'}
                     </p>
                   </div>
 
@@ -276,16 +409,15 @@ export default function AdminBlocksPage() {
                     type="button"
                     onClick={() => handleDelete(block.id)}
                     disabled={deletingId === block.id}
-                    className="rounded-xl border px-4 py-2 text-sm font-medium disabled:opacity-60"
+                    className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
                   >
                     {deletingId === block.id ? 'Deleting...' : 'Delete'}
                   </button>
                 </div>
               </div>
             ))
-          )}
-        </div>
-      </section>
+        )}
+      </div>
     </section>
   );
 }
