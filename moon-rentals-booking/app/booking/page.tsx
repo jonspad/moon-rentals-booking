@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { vehicles } from '@/lib/vehicles';
 
 type Vehicle = {
@@ -52,6 +52,7 @@ function isOverlapping(
 }
 
 export default function BookingPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   const groupId = searchParams.get('groupId') || '';
@@ -67,7 +68,6 @@ export default function BookingPage() {
   const [loadingAvailability, setLoadingAvailability] = useState(true);
   const [loadingSubmit, setLoadingSubmit] = useState(false);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const groupVehicles = useMemo(() => {
     return vehicles.filter((vehicle) => {
@@ -192,7 +192,6 @@ export default function BookingPage() {
 
     setLoadingSubmit(true);
     setError('');
-    setSuccessMessage('');
 
     try {
       const vehicleId = Number(selectedVehicleId);
@@ -223,18 +222,23 @@ export default function BookingPage() {
         return;
       }
 
-      setSuccessMessage(
-        'Booking request submitted successfully. We have saved it as pending.'
-      );
-      setFullName('');
-      setEmail('');
-      setPhone('');
-      setSelectedVehicleId('');
+      const selectedVehicleLabel = selectedVehicle
+        ? `${selectedVehicle.make} ${selectedVehicle.model} - ${
+            selectedVehicle.color !== 'Unknown'
+              ? selectedVehicle.color
+              : `Unit #${selectedVehicle.id}`
+          }`
+        : 'Vehicle';
 
-      const bookingsRes = await fetch('/api/bookings', { cache: 'no-store' });
-      const bookingsText = await bookingsRes.text();
-      const bookingsData = bookingsText ? JSON.parse(bookingsText) : {};
-      setBookings(Array.isArray(bookingsData.bookings) ? bookingsData.bookings : []);
+      router.push(
+        `/booking/confirmation?name=${encodeURIComponent(
+          fullName
+        )}&vehicle=${encodeURIComponent(
+          selectedVehicleLabel
+        )}&pickupAt=${encodeURIComponent(
+          pickupAt
+        )}&returnAt=${encodeURIComponent(returnAt)}`
+      );
     } catch (err) {
       console.error('Booking submit error:', err);
       setError('Something went wrong while submitting your booking.');
@@ -351,8 +355,7 @@ export default function BookingPage() {
                 <option value="">Select an available unit</option>
                 {availableVehicles.map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
-                    {vehicle.color !== 'Unknown' ? vehicle.color : 'Color not specified'} •
-                    {' '}Unit #{vehicle.id}
+                    {vehicle.color !== 'Unknown' ? vehicle.color : 'Color not specified'} • Unit #{vehicle.id}
                   </option>
                 ))}
               </select>
@@ -416,11 +419,6 @@ export default function BookingPage() {
           )}
 
           {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
-          {successMessage && (
-            <p className="mt-4 text-sm text-green-600 dark:text-green-400">
-              {successMessage}
-            </p>
-          )}
         </section>
       </div>
     </main>
