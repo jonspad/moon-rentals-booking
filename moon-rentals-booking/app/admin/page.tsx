@@ -1,41 +1,72 @@
 import Link from 'next/link';
 
+function AdminCard({
+  title,
+  description,
+  href,
+  action,
+}: {
+  title: string;
+  description: string;
+  href: string;
+  action: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+      <h2 className="text-xl font-semibold">{title}</h2>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+        {description}
+      </p>
+      <div className="mt-5">
+        <Link
+          href={href}
+          className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-900"
+        >
+          {action}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   return (
-    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <div className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950">
-        <h2 className="text-xl font-semibold">Bookings</h2>
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <h2 className="text-2xl font-bold">Admin Dashboard</h2>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-          Review reservations and update booking status.
+          Manage inventory, reservations, and manual availability controls from one place.
         </p>
-        <Link
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <AdminCard
+          title="Vehicles"
+          description="Add, edit, activate, deactivate, or remove vehicles in inventory."
+          href="/admin/vehicles"
+          action="Manage Vehicles"
+        />
+
+        <AdminCard
+          title="Bookings"
+          description="Review reservations and update booking status."
           href="/admin/bookings"
-          className="mt-4 inline-block rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium dark:border-gray-700"
-        >
-          Open Bookings
-        </Link>
-      </div>
+          action="Open Bookings"
+        />
 
-      <div className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950">
-        <h2 className="text-xl font-semibold">Vehicle Blocks</h2>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-          Add or remove manual blockouts that prevent bookings.
-        </p>
-        <Link
+        <AdminCard
+          title="Vehicle Blocks"
+          description="Add or remove manual blockouts that prevent bookings."
           href="/admin/blocks"
-          className="mt-4 inline-block rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium dark:border-gray-700"
-        >
-          Manage Blocks
-        </Link>
+          action="Manage Blocks"
+        />
       </div>
 
-      <div className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950">
-        <h2 className="text-xl font-semibold">System Status</h2>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-          Admin auth is enabled and customer availability is checked against
-          bookings and manual blocks.
-        </p>
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+        System status: admin auth is enabled, vehicles are stored in Prisma, and
+        customer availability checks will stay in sync with inventory once the API
+        routes above are updated.
       </div>
-    </section>
+    </div>
   );
 }

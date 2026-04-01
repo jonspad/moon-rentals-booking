@@ -6,7 +6,7 @@ import {
   updateBookingStatus,
 } from '@/lib/bookingStore';
 import { getBlocks } from '@/lib/blockStore';
-import { vehicles } from '@/lib/vehicles';
+import { prisma } from '@/lib/prisma';
 
 function isOverlapping(
   requestedStart: Date,
@@ -51,7 +51,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const vehicle = vehicles.find((v) => v.id === vehicleId && v.isActive);
+    const vehicle = await prisma.vehicle.findFirst({
+      where: {
+        id: vehicleId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+      },
+    });
 
     if (!vehicle) {
       return NextResponse.json({ error: 'Vehicle not found.' }, { status: 404 });

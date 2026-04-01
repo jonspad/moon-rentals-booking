@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { addBlock, deleteBlock, getBlocks } from '@/lib/blockStore';
-import { vehicles } from '@/lib/vehicles';
+import { prisma } from '@/lib/prisma';
 
 export async function GET() {
   try {
@@ -18,6 +18,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
     const vehicleId = Number(body.vehicleId);
     const start = body.start;
     const end = body.end;
@@ -30,12 +31,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const vehicleExists = vehicles.some((vehicle) => vehicle.id === vehicleId);
+    const vehicleExists = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { id: true },
+    });
+
     if (!vehicleExists) {
-      return NextResponse.json(
-        { error: 'Vehicle not found.' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Vehicle not found.' }, { status: 404 });
     }
 
     const startDate = new Date(start);

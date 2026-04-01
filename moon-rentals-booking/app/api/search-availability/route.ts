@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { vehicles } from '@/lib/vehicles';
+import { prisma } from '@/lib/prisma';
 import { getBlocks } from '@/lib/blockStore';
 import { getBookings } from '@/lib/bookingStore';
 
@@ -40,12 +40,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const blocks = await getBlocks();
-    const bookings = await getBookings();
+    const [vehicles, blocks, bookings] = await Promise.all([
+      prisma.vehicle.findMany({
+        where: { isActive: true },
+        orderBy: [
+          { make: 'asc' },
+          { model: 'asc' },
+          { year: 'desc' },
+          { color: 'asc' },
+        ],
+      }),
+      getBlocks(),
+      getBookings(),
+    ]);
 
     const availableVehicles = vehicles.filter((vehicle) => {
-      if (!vehicle.isActive) return false;
-
       const vehicleBlocks = blocks.filter((block) => block.vehicleId === vehicle.id);
 
       const isBlocked = vehicleBlocks.some((block) => {
@@ -62,9 +71,7 @@ export async function POST(req: NextRequest) {
       if (isBlocked) return false;
 
       const vehicleBookings = bookings.filter(
-        (booking) =>
-          booking.vehicleId === vehicle.id &&
-          booking.status !== 'cancelled'
+        (booking) => booking.vehicleId === vehicle.id && booking.status !== 'cancelled'
       );
 
       const isBooked = vehicleBookings.some((booking) => {
