@@ -7,7 +7,7 @@ export default function HomePage() {
         <div className="mt-16 grid gap-10 md:grid-cols-2 md:items-center">
           <div>
             <p className="text-sm font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Norfolk Vehicle Rentals
+              Los Angeles Vehicle Rentals
             </p>
 
             <h2 className="mt-4 text-5xl font-bold leading-tight">
