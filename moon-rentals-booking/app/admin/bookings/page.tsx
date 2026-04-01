@@ -30,6 +30,8 @@ type Vehicle = {
   isActive: boolean;
 };
 
+type FilterKey = 'pending' | 'confirmed' | 'cancelled' | 'all';
+
 function formatDateTime(value: string) {
   const parsed = new Date(value);
 
@@ -64,6 +66,12 @@ function getStatusPriority(status: Booking['status']) {
   return 2;
 }
 
+function getFilterButtonClasses(isActive: boolean) {
+  return isActive
+    ? 'border-black bg-black text-white'
+    : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-white dark:hover:bg-gray-900';
+}
+
 export default function AdminBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -72,6 +80,7 @@ export default function AdminBookingsPage() {
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('pending');
 
   async function loadBookings() {
     const res = await fetch('/api/bookings', { cache: 'no-store' });
@@ -225,6 +234,23 @@ export default function AdminBookingsPage() {
     (b) => b.status === 'cancelled'
   ).length;
 
+  const filteredBookings = useMemo(() => {
+    if (activeFilter === 'all') {
+      return sortedBookings;
+    }
+
+    return sortedBookings.filter((booking) => booking.status === activeFilter);
+  }, [sortedBookings, activeFilter]);
+
+  const activeFilterLabel =
+    activeFilter === 'pending'
+      ? 'Pending Approval'
+      : activeFilter === 'confirmed'
+      ? 'Approved'
+      : activeFilter === 'cancelled'
+      ? 'Rejected'
+      : 'All Bookings';
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
@@ -249,7 +275,11 @@ export default function AdminBookingsPage() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setActiveFilter('pending')}
+          className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5 text-left shadow-sm transition hover:shadow-md"
+        >
           <div className="text-sm font-medium text-yellow-800">
             Pending Approval
           </div>
@@ -259,9 +289,13 @@ export default function AdminBookingsPage() {
           <p className="mt-2 text-sm text-yellow-800">
             Booking requests that still need action.
           </p>
-        </div>
+        </button>
 
-        <div className="rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setActiveFilter('confirmed')}
+          className="rounded-2xl border border-green-200 bg-green-50 p-5 text-left shadow-sm transition hover:shadow-md"
+        >
           <div className="text-sm font-medium text-green-800">Approved</div>
           <div className="mt-2 text-3xl font-semibold text-green-900">
             {confirmedCount}
@@ -269,9 +303,13 @@ export default function AdminBookingsPage() {
           <p className="mt-2 text-sm text-green-800">
             Reservations that have been approved.
           </p>
-        </div>
+        </button>
 
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setActiveFilter('cancelled')}
+          className="rounded-2xl border border-red-200 bg-red-50 p-5 text-left shadow-sm transition hover:shadow-md"
+        >
           <div className="text-sm font-medium text-red-800">Rejected</div>
           <div className="mt-2 text-3xl font-semibold text-red-900">
             {cancelledCount}
@@ -279,6 +317,61 @@ export default function AdminBookingsPage() {
           <p className="mt-2 text-sm text-red-800">
             Requests that were declined or cancelled.
           </p>
+        </button>
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+              Filter Bookings
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              Currently viewing: {activeFilterLabel}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveFilter('pending')}
+              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${getFilterButtonClasses(
+                activeFilter === 'pending'
+              )}`}
+            >
+              Pending ({pendingCount})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveFilter('confirmed')}
+              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${getFilterButtonClasses(
+                activeFilter === 'confirmed'
+              )}`}
+            >
+              Approved ({confirmedCount})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveFilter('cancelled')}
+              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${getFilterButtonClasses(
+                activeFilter === 'cancelled'
+              )}`}
+            >
+              Rejected ({cancelledCount})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveFilter('all')}
+              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${getFilterButtonClasses(
+                activeFilter === 'all'
+              )}`}
+            >
+              All ({bookings.length})
+            </button>
+          </div>
         </div>
       </section>
 
@@ -299,13 +392,13 @@ export default function AdminBookingsPage() {
           <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
             Loading bookings...
           </div>
-        ) : sortedBookings.length === 0 ? (
+        ) : filteredBookings.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
-            No bookings found yet.
+            No bookings found for the current filter.
           </div>
         ) : (
           <div className="space-y-4">
-            {sortedBookings.map((booking) => {
+            {filteredBookings.map((booking) => {
               const statusClasses = getStatusClasses(booking.status);
               const isPending = booking.status === 'pending';
               const isConfirmed = booking.status === 'confirmed';
