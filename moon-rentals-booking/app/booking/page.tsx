@@ -50,7 +50,14 @@ function formatCurrency(value?: number | null) {
 function formatDateTimeLocal(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Invalid date';
-  return date.toLocaleString();
+
+  return date.toLocaleString([], {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 function toDatetimeLocalValue(date: Date) {
@@ -83,6 +90,54 @@ function getVehicleDisplayName(vehicle: Vehicle) {
 function isValidDatetimeLocal(value: string | null) {
   if (!value) return false;
   return !Number.isNaN(new Date(value).getTime());
+}
+
+function getDurationMs(start: string, end: string) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return 0;
+  }
+
+  const diff = endDate.getTime() - startDate.getTime();
+  return diff > 0 ? diff : 0;
+}
+
+function getBillableDays(start: string, end: string) {
+  const durationMs = getDurationMs(start, end);
+
+  if (durationMs <= 0) return 0;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.ceil(durationMs / dayMs);
+}
+
+function formatRentalLength(start: string, end: string) {
+  const durationMs = getDurationMs(start, end);
+
+  if (durationMs <= 0) return '—';
+
+  const totalMinutes = Math.floor(durationMs / (1000 * 60));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  const parts: string[] = [];
+
+  if (days > 0) {
+    parts.push(`${days} day${days === 1 ? '' : 's'}`);
+  }
+
+  if (hours > 0) {
+    parts.push(`${hours} hour${hours === 1 ? '' : 's'}`);
+  }
+
+  if (minutes > 0) {
+    parts.push(`${minutes} minute${minutes === 1 ? '' : 's'}`);
+  }
+
+  return parts.join(', ');
 }
 
 export default function BookingPage() {
@@ -201,7 +256,8 @@ export default function BookingPage() {
       if (blocked) return false;
 
       const vehicleBookings = bookings.filter(
-        (booking) => booking.vehicleId === vehicle.id && booking.status !== 'cancelled'
+        (booking) =>
+          booking.vehicleId === vehicle.id && booking.status === 'confirmed'
       );
 
       const booked = vehicleBookings.some((booking) => {
@@ -237,6 +293,23 @@ export default function BookingPage() {
     if (selectedVehicleId == null) return null;
     return availableVehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null;
   }, [availableVehicles, selectedVehicleId]);
+
+  const headerVehicle = selectedVehicle ?? groupSummaryVehicle;
+
+  const dailyRate = selectedVehicle?.pricePerDay ?? headerVehicle?.pricePerDay ?? null;
+
+  const rentalLength = useMemo(() => {
+    return formatRentalLength(pickupAt, returnAt);
+  }, [pickupAt, returnAt]);
+
+  const billableDays = useMemo(() => {
+    return getBillableDays(pickupAt, returnAt);
+  }, [pickupAt, returnAt]);
+
+  const estimatedTotal = useMemo(() => {
+    if (typeof dailyRate !== 'number' || billableDays <= 0) return null;
+    return dailyRate * billableDays;
+  }, [dailyRate, billableDays]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -343,8 +416,6 @@ export default function BookingPage() {
       </main>
     );
   }
-
-  const headerVehicle = selectedVehicle ?? groupSummaryVehicle;
 
   return (
     <main className="min-h-screen bg-neutral-50 px-6 py-10 text-neutral-900">
@@ -547,10 +618,52 @@ export default function BookingPage() {
                 <div className="mt-4 rounded-2xl border border-neutral-200 p-4">
                   <div className="text-sm font-medium text-neutral-800">Rate</div>
                   <div className="mt-3 text-2xl font-bold">
-                    {formatCurrency(
-                      selectedVehicle?.pricePerDay ?? headerVehicle.pricePerDay
-                    )}{' '}
-                    / day
+                    {formatCurrency(dailyRate)} / day
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-neutral-200 p-4">
+                  <div className="text-sm font-medium text-neutral-800">
+                    Estimated Charges
+                  </div>
+
+                  <div className="mt-3 space-y-3 text-sm text-neutral-700">
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Rental Length</span>
+                      <span className="font-medium text-neutral-900">{rentalLength}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Billable Days</span>
+                      <span className="font-medium text-neutral-900">
+                        {billableDays > 0 ? billableDays : '—'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Daily Rate</span>
+                      <span className="font-medium text-neutral-900">
+                        {formatCurrency(dailyRate)}
+                      </span>
+                    </div>
+
+                    <div className="border-t border-neutral-200 pt-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-base font-semibold text-neutral-900">
+                          Estimated Total
+                        </span>
+                        <span className="text-2xl font-bold text-neutral-900">
+                          {estimatedTotal != null
+                            ? formatCurrency(estimatedTotal)
+                            : '—'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-neutral-500">
+                      Pricing shown as an estimate using full-day billing rounded up
+                      to the next day.
+                    </p>
                   </div>
                 </div>
 
