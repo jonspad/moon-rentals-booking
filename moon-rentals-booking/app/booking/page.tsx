@@ -10,12 +10,11 @@ type Vehicle = {
   model: string;
   year: number;
   color?: string | null;
-  plate?: string | null;
-  dailyRate?: number | null;
-  imageUrl?: string | null;
+  licensePlate?: string | null;
+  pricePerDay?: number | null;
+  image?: string | null;
   seats?: number | null;
   transmission?: string | null;
-  fuelType?: string | null;
   isActive: boolean;
   groupId?: string | null;
 };
@@ -41,6 +40,7 @@ type VehicleBlock = {
 
 function formatCurrency(value?: number | null) {
   if (typeof value !== 'number') return 'Call for pricing';
+
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -130,9 +130,7 @@ export default function BookingPage() {
 
         setBookings(Array.isArray(bookingsData.bookings) ? bookingsData.bookings : []);
         setBlocks(Array.isArray(blocksData.blocks) ? blocksData.blocks : []);
-        setFleetVehicles(
-          Array.isArray(vehiclesData.vehicles) ? vehiclesData.vehicles : []
-        );
+        setFleetVehicles(Array.isArray(vehiclesData.vehicles) ? vehiclesData.vehicles : []);
       } catch (err) {
         console.error('Failed to load booking availability data:', err);
         setError('Failed to load availability data for this vehicle group.');
@@ -145,11 +143,13 @@ export default function BookingPage() {
   }, []);
 
   const groupVehicles = useMemo(() => {
-    if (!groupId) return fleetVehicles.filter((vehicle) => vehicle.isActive);
+    if (!groupId) {
+      return fleetVehicles.filter((vehicle) => vehicle.isActive);
+    }
 
-    return fleetVehicles.filter((vehicle) => {
-      return vehicle.groupId === groupId && vehicle.isActive;
-    });
+    return fleetVehicles.filter(
+      (vehicle) => vehicle.groupId === groupId && vehicle.isActive
+    );
   }, [fleetVehicles, groupId]);
 
   const groupSummaryVehicle = useMemo(() => {
@@ -171,6 +171,7 @@ export default function BookingPage() {
 
     return groupVehicles.filter((vehicle) => {
       const vehicleBlocks = blocks.filter((block) => block.vehicleId === vehicle.id);
+
       const blocked = vehicleBlocks.some((block) => {
         const start = new Date(block.start);
         const end = new Date(block.end);
@@ -185,8 +186,7 @@ export default function BookingPage() {
       if (blocked) return false;
 
       const vehicleBookings = bookings.filter(
-        (booking) =>
-          booking.vehicleId === vehicle.id && booking.status !== 'cancelled'
+        (booking) => booking.vehicleId === vehicle.id && booking.status !== 'cancelled'
       );
 
       const booked = vehicleBookings.some((booking) => {
@@ -223,7 +223,7 @@ export default function BookingPage() {
     return availableVehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null;
   }, [availableVehicles, selectedVehicleId]);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
@@ -278,7 +278,6 @@ export default function BookingPage() {
       }
 
       const booking = data.booking;
-
       setSuccessMessage('Booking created successfully.');
 
       const vehicleName = selectedVehicle
@@ -309,266 +308,259 @@ export default function BookingPage() {
 
   if (!loadingAvailability && !groupSummaryVehicle) {
     return (
-      <div className="mx-auto flex min-h-[70vh] w-full max-w-3xl items-center justify-center px-4 py-10">
-        <div className="w-full rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm dark:border-gray-800 dark:bg-gray-950">
-          <h1 className="text-2xl font-bold">Vehicle group not found</h1>
-          <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
-            We could not find an active vehicle or fleet group for this booking page.
-          </p>
-          <div className="mt-6">
-            <Link
-              href="/fleet"
-              className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-900"
-            >
-              Back to Fleet
-            </Link>
+      <main className="min-h-screen bg-white px-6 py-10 text-black">
+        <div className="mx-auto max-w-3xl">
+          <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+            <h1 className="text-2xl font-bold">Vehicle group not found</h1>
+            <p className="mt-3 text-gray-600">
+              We could not find an active vehicle or fleet group for this booking page.
+            </p>
+            <div className="mt-6">
+              <Link
+                href="/vehicles"
+                className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+              >
+                Back to Fleet
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 
   const headerVehicle = selectedVehicle ?? groupSummaryVehicle;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8 md:px-6">
-      <div className="mb-8">
-        <Link
-          href="/fleet"
-          className="text-sm font-medium text-gray-600 transition hover:text-black dark:text-gray-300 dark:hover:text-white"
-        >
-          ← Back to Fleet
-        </Link>
-      </div>
+    <main className="min-h-screen bg-neutral-50 px-6 py-10 text-neutral-900">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-6">
+          <Link
+            href="/vehicles"
+            className="text-sm text-neutral-600 hover:text-black"
+          >
+            ← Back to Fleet
+          </Link>
+        </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold">
+        <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+            <h1 className="text-4xl font-bold tracking-tight">
               {groupId ? 'Book This Vehicle Group' : 'Book a Vehicle'}
             </h1>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            <p className="mt-3 text-neutral-600">
               Select your dates, choose an available vehicle, and complete your booking.
             </p>
+
+            {error ? (
+              <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            ) : null}
+
+            {successMessage ? (
+              <div className="mt-6 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                {successMessage}
+              </div>
+            ) : null}
+
+            <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-neutral-800">
+                    Pickup
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={pickupAt}
+                    onChange={(e) => setPickupAt(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black"
+                    required
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-neutral-800">
+                    Return
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={returnAt}
+                    onChange={(e) => setReturnAt(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black"
+                    required
+                  />
+                </label>
+              </div>
+
+              <div>
+                <h2 className="mb-3 text-sm font-medium text-neutral-800">
+                  Available Vehicles
+                </h2>
+
+                {loadingAvailability ? (
+                  <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5 text-sm text-neutral-600">
+                    Loading vehicle availability...
+                  </div>
+                ) : availableVehicles.length === 0 ? (
+                  <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5 text-sm text-neutral-600">
+                    No vehicles are available for the selected dates.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {availableVehicles.map((vehicle) => {
+                      const checked = selectedVehicleId === vehicle.id;
+
+                      return (
+                        <label
+                          key={vehicle.id}
+                          className={`block cursor-pointer rounded-2xl border p-4 transition ${
+                            checked
+                              ? 'border-black bg-neutral-50'
+                              : 'border-neutral-200 bg-white hover:border-neutral-300'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="radio"
+                              name="selectedVehicle"
+                              checked={checked}
+                              onChange={() => setSelectedVehicleId(vehicle.id)}
+                              className="mt-1"
+                            />
+
+                            <div className="min-w-0 flex-1">
+                              <div className="text-lg font-semibold">
+                                {getVehicleDisplayName(vehicle)}
+                              </div>
+
+                              <div className="mt-1 text-sm text-neutral-600">
+                                {vehicle.transmission || 'Transmission N/A'}
+                                {vehicle.seats ? ` • ${vehicle.seats} seats` : ''}
+                              </div>
+
+                              <div className="mt-3 text-xl font-semibold">
+                                {formatCurrency(vehicle.pricePerDay)} / day
+                              </div>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-neutral-800">
+                    Full Name
+                  </span>
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black"
+                    placeholder="Your full name"
+                    required
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-[1fr_190px]">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-neutral-800">
+                    Email
+                  </span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black"
+                    placeholder="you@example.com"
+                    required
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-neutral-800">
+                    Phone
+                  </span>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black"
+                    placeholder="(555) 555-5555"
+                    required
+                  />
+                </label>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={submitting || availableVehicles.length === 0}
+                  className="inline-flex rounded-2xl bg-black px-6 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? 'Creating Booking...' : 'Book Now'}
+                </button>
+              </div>
+            </form>
           </div>
 
-          {error ? (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-              {error}
-            </div>
-          ) : null}
+          <aside className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-bold">Booking Summary</h2>
 
-          {successMessage ? (
-            <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900/50 dark:bg-green-950/30 dark:text-green-300">
-              {successMessage}
-            </div>
-          ) : null}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="pickupAt"
-                  className="mb-2 block text-sm font-medium"
-                >
-                  Pickup
-                </label>
-                <input
-                  id="pickupAt"
-                  type="datetime-local"
-                  value={pickupAt}
-                  onChange={(e) => setPickupAt(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="returnAt"
-                  className="mb-2 block text-sm font-medium"
-                >
-                  Return
-                </label>
-                <input
-                  id="returnAt"
-                  type="datetime-local"
-                  value={returnAt}
-                  onChange={(e) => setReturnAt(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium">
-                Available Vehicles
-              </label>
-
-              {loadingAvailability ? (
-                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-                  Loading vehicle availability...
-                </div>
-              ) : availableVehicles.length === 0 ? (
-                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-                  No vehicles are available for the selected dates.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {availableVehicles.map((vehicle) => {
-                    const checked = selectedVehicleId === vehicle.id;
-
-                    return (
-                      <label
-                        key={vehicle.id}
-                        className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
-                          checked
-                            ? 'border-black bg-gray-50 dark:border-white dark:bg-gray-900'
-                            : 'border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:hover:bg-gray-900'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="vehicleId"
-                          value={vehicle.id}
-                          checked={checked}
-                          onChange={() => setSelectedVehicleId(vehicle.id)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm font-semibold">
-                            {getVehicleDisplayName(vehicle)}
-                          </div>
-                          <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                            {vehicle.transmission || 'Transmission N/A'}
-                            {vehicle.seats ? ` • ${vehicle.seats} seats` : ''}
-                            {vehicle.fuelType ? ` • ${vehicle.fuelType}` : ''}
-                          </div>
-                          <div className="mt-2 text-sm font-medium">
-                            {formatCurrency(vehicle.dailyRate)} / day
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="md:col-span-3">
-                <label
-                  htmlFor="fullName"
-                  className="mb-2 block text-sm font-medium"
-                >
-                  Full Name
-                </label>
-                <input
-                  id="fullName"
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
-                  placeholder="Your full name"
-                  required
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label
-                  htmlFor="email"
-                  className="mb-2 block text-sm font-medium"
-                >
-                  Email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
-                  placeholder="you@example.com"
-                  required
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="phone"
-                  className="mb-2 block text-sm font-medium"
-                >
-                  Phone
-                </label>
-                <input
-                  id="phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
-                  placeholder="(555) 555-5555"
-                  required
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={submitting || loadingAvailability || availableVehicles.length === 0}
-              className="inline-flex rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black"
-            >
-              {submitting ? 'Creating Booking...' : 'Book Now'}
-            </button>
-          </form>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-          <h2 className="text-xl font-bold">Booking Summary</h2>
-
-          {headerVehicle ? (
-            <div className="mt-4 space-y-4">
-              <div>
-                <div className="text-lg font-semibold">
-                  {getVehicleDisplayName(headerVehicle)}
-                </div>
-                <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                  {headerVehicle.transmission || 'Transmission N/A'}
-                  {headerVehicle.seats ? ` • ${headerVehicle.seats} seats` : ''}
-                  {headerVehicle.fuelType ? ` • ${headerVehicle.fuelType}` : ''}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900">
-                <div className="text-sm font-medium">Selected Dates</div>
-                <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                  <div>Pickup: {formatDateTimeLocal(pickupAt)}</div>
-                  <div className="mt-1">Return: {formatDateTimeLocal(returnAt)}</div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900">
-                <div className="text-sm font-medium">Rate</div>
-                <div className="mt-2 text-lg font-semibold">
-                  {formatCurrency(headerVehicle.dailyRate)} / day
-                </div>
-              </div>
-
-              {selectedVehicle ? (
-                <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900">
-                  <div className="text-sm font-medium">Selected Vehicle</div>
-                  <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                    {getVehicleDisplayName(selectedVehicle)}
+            {headerVehicle ? (
+              <>
+                <div className="mt-6">
+                  <div className="text-2xl font-bold">
+                    {getVehicleDisplayName(headerVehicle)}
+                  </div>
+                  <div className="mt-1 text-neutral-600">
+                    {headerVehicle.transmission || 'Transmission N/A'}
+                    {headerVehicle.seats ? ` • ${headerVehicle.seats} seats` : ''}
                   </div>
                 </div>
-              ) : null}
-            </div>
-          ) : (
-            <p className="mt-4 text-sm text-gray-600 dark:text-gray-300">
-              Select dates to view your booking summary.
-            </p>
-          )}
+
+                <div className="mt-6 rounded-2xl border border-neutral-200 p-4">
+                  <div className="text-sm font-medium text-neutral-800">Selected Dates</div>
+                  <div className="mt-3 space-y-2 text-sm text-neutral-700">
+                    <div>Pickup: {formatDateTimeLocal(pickupAt)}</div>
+                    <div>Return: {formatDateTimeLocal(returnAt)}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-neutral-200 p-4">
+                  <div className="text-sm font-medium text-neutral-800">Rate</div>
+                  <div className="mt-3 text-2xl font-bold">
+                    {formatCurrency(
+                      selectedVehicle?.pricePerDay ?? headerVehicle.pricePerDay
+                    )}{' '}
+                    / day
+                  </div>
+                </div>
+
+                {selectedVehicle ? (
+                  <div className="mt-4 rounded-2xl border border-neutral-200 p-4">
+                    <div className="text-sm font-medium text-neutral-800">
+                      Selected Vehicle
+                    </div>
+                    <div className="mt-3 text-neutral-700">
+                      {getVehicleDisplayName(selectedVehicle)}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="mt-6 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
+                Select dates to view your booking summary.
+              </div>
+            )}
+          </aside>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
