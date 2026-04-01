@@ -29,9 +29,14 @@ export default function VehiclesPage() {
 
   useEffect(() => {
     async function loadVehicles() {
-      const res = await fetch('/api/vehicles', { cache: 'no-store' });
-      const data = await res.json();
-      setVehicles(data.vehicles || []);
+      try {
+        const res = await fetch('/api/vehicles', { cache: 'no-store' });
+        const data = await res.json();
+        setVehicles(data.vehicles || []);
+      } catch (error) {
+        console.error('Failed to load vehicles:', error);
+        setVehicles([]);
+      }
     }
 
     loadVehicles();
@@ -82,87 +87,121 @@ export default function VehiclesPage() {
   }, [grouped, search]);
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-12 text-black dark:text-white">
-      <h1 className="text-3xl font-bold">Our Fleet</h1>
+    <main className="mx-auto max-w-7xl px-6 py-12 text-black dark:text-white">
+      <section className="mb-8">
+        <h1 className="text-4xl font-bold tracking-tight">Our Fleet</h1>
+        <p className="mt-3 max-w-2xl text-base text-gray-600 dark:text-gray-300">
+          Search the fleet first, then check availability for the exact vehicle you want.
+        </p>
+      </section>
 
-      <p className="mt-2 text-gray-600 dark:text-gray-300">
-        Search the fleet first, then check availability for the exact vehicle you want.
-      </p>
-
-      <div className="mt-8 rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950">
+      <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Search Vehicles</span>
+          <span className="mb-3 block text-sm font-semibold tracking-wide text-gray-900 dark:text-white">
+            Search Vehicles
+          </span>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search make, model, category, or keyword (ex: Ford, SUV, Tesla)"
-            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-black outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 text-base text-black outline-none transition focus:border-black focus:bg-white dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:border-white"
           />
         </label>
 
-        <div className="mt-3 text-sm text-gray-600 dark:text-gray-300">
-          Showing {filteredVehicles.length} of {grouped.length} vehicle groups
+        <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+          Showing <span className="font-semibold text-gray-900 dark:text-white">{filteredVehicles.length}</span> of{' '}
+          <span className="font-semibold text-gray-900 dark:text-white">{grouped.length}</span> vehicle groups
         </div>
-      </div>
+      </section>
 
-      <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+      <section className="mt-10 grid gap-8 md:grid-cols-2 xl:grid-cols-3">
         {filteredVehicles.map((v) => (
-          <div
+          <article
             key={v.groupId}
-            className="rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950"
+            className="group overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-xl dark:border-gray-800 dark:bg-gray-950"
           >
-            {v.image && (
-              <img
-                src={v.image}
-                alt={`${v.make} ${v.model}`}
-                className="mb-4 h-48 w-full rounded-xl object-cover"
-              />
-            )}
+            <div className="border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white p-6 dark:border-gray-800 dark:from-gray-900 dark:to-gray-950">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="inline-flex rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                    {v.category}
+                  </div>
+                </div>
 
-            <h2 className="text-xl font-semibold">
-              {v.make} {v.model}
-            </h2>
+                <div className="rounded-full bg-black px-3 py-1 text-xs font-semibold text-white dark:bg-white dark:text-black">
+                  {v.count} Available
+                </div>
+              </div>
 
-            <p className="text-sm text-gray-600 dark:text-gray-300">{v.category}</p>
-
-            <p className="mt-2 text-sm">
-              {v.seats} seats • {v.transmission}
-            </p>
-
-            <p className="mt-3 text-lg font-bold">From ${v.pricePerDay}/day</p>
-
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-              {v.description}
-            </p>
-
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-              {v.count} available units
-            </p>
-
-            <div className="mt-4 flex gap-3">
-              <Link
-                href={`/book?groupId=${encodeURIComponent(v.groupId)}&make=${encodeURIComponent(
-                  v.make
-                )}&model=${encodeURIComponent(v.model)}`}
-                className="inline-block rounded-xl border border-gray-300 px-4 py-2 dark:border-gray-700"
-              >
-                Check Availability
-              </Link>
-
-              <Link
-                href="/book"
-                className="inline-block rounded-xl border border-gray-300 px-4 py-2 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300"
-              >
-                Broad Search
-              </Link>
+              <div className="mt-5 flex h-56 items-center justify-center rounded-2xl bg-white p-4 dark:bg-gray-900">
+                {v.image ? (
+                  <img
+                    src={v.image}
+                    alt={`${v.make} ${v.model}`}
+                    className="max-h-full w-full object-contain transition duration-300 group-hover:scale-[1.02]"
+                  />
+                ) : (
+                  <div className="text-sm text-gray-400">No image available</div>
+                )}
+              </div>
             </div>
-          </div>
+
+            <div className="p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight text-black dark:text-white">
+                    {v.make} {v.model}
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
+                    {v.description}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                <span className="rounded-full bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                  {v.seats} Seats
+                </span>
+                <span className="rounded-full bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                  {v.transmission}
+                </span>
+              </div>
+
+              <div className="mt-6 flex items-end justify-between gap-4">
+                <div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Starting from</div>
+                  <div className="text-3xl font-bold tracking-tight text-black dark:text-white">
+                    ${v.pricePerDay}
+                    <span className="ml-1 text-base font-medium text-gray-500 dark:text-gray-400">/day</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Link
+                  href={`/book?groupId=${encodeURIComponent(v.groupId)}&make=${encodeURIComponent(
+                    v.make
+                  )}&model=${encodeURIComponent(v.model)}`}
+                  className="inline-flex items-center justify-center rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+                >
+                  Check Availability
+                </Link>
+
+                <Link
+                  href="/book"
+                  className="inline-flex items-center justify-center rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300 dark:hover:bg-gray-900"
+                >
+                  Broad Search
+                </Link>
+              </div>
+            </div>
+          </article>
         ))}
-      </div>
+      </section>
 
       {filteredVehicles.length === 0 && (
-        <div className="mt-8 rounded-2xl border border-gray-300 bg-white p-6 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300">
+        <div className="mt-10 rounded-3xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300">
           No vehicles matched your search.
         </div>
       )}
