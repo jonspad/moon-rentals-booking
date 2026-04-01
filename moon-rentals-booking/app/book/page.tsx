@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 type Vehicle = {
   id: number;
@@ -81,6 +82,13 @@ function formatDateTimeForDisplay(value: string): string {
 }
 
 export default function BookPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const selectedGroupId = searchParams.get('groupId');
+  const selectedMake = searchParams.get('make') || '';
+  const selectedModel = searchParams.get('model') || '';
+
   const timeOptions = useMemo(() => generateTimeOptions(), []);
 
   const [pickupDate, setPickupDate] = useState('');
@@ -112,6 +120,10 @@ export default function BookPage() {
     const groups = new Map<string, VehicleGroupResult>();
 
     for (const vehicle of vehicles) {
+      if (selectedGroupId && vehicle.groupId !== selectedGroupId) {
+        continue;
+      }
+
       const existing = groups.get(vehicle.groupId);
 
       if (!existing) {
@@ -152,9 +164,10 @@ export default function BookPage() {
       if (a.make !== b.make) {
         return a.make.localeCompare(b.make);
       }
+
       return a.model.localeCompare(b.model);
     });
-  }, [vehicles]);
+  }, [vehicles, selectedGroupId]);
 
   async function handleSearch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -197,7 +210,7 @@ export default function BookPage() {
     }
   }
 
-  function handleClear() {
+  function handleClearDates() {
     setPickupDate('');
     setPickupTime('10:00');
     setReturnDate('');
@@ -207,13 +220,47 @@ export default function BookPage() {
     setHasSearched(false);
   }
 
+  function handleClearVehicleFilter() {
+    router.push('/book');
+  }
+
+  const selectedVehicleLabel =
+    selectedMake || selectedModel
+      ? `${selectedMake} ${selectedModel}`.trim()
+      : selectedGroupId
+      ? 'Selected Vehicle'
+      : '';
+
   return (
     <main className="mx-auto max-w-6xl px-6 py-12 text-black dark:text-white">
-      <h1 className="text-3xl font-bold">Book Your Vehicle</h1>
+      <h1 className="text-3xl font-bold">
+        {selectedGroupId ? 'Check Availability for This Vehicle' : 'Book Your Vehicle'}
+      </h1>
 
       <p className="mt-2 text-gray-600 dark:text-gray-300">
-        Select your dates to see available vehicles.
+        {selectedGroupId
+          ? 'Select your dates to check availability for the vehicle you chose from the fleet page.'
+          : 'Select your dates to see available vehicles.'}
       </p>
+
+      {selectedGroupId && (
+        <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Searching within</div>
+            <div className="text-lg font-semibold">
+              {selectedVehicleLabel || 'Selected vehicle group'}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleClearVehicleFilter}
+            className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium dark:border-gray-700"
+          >
+            Search All Vehicles Instead
+          </button>
+        </div>
+      )}
 
       <form
         onSubmit={handleSearch}
@@ -286,10 +333,10 @@ export default function BookPage() {
         <div className="flex items-end">
           <button
             type="button"
-            onClick={handleClear}
+            onClick={handleClearDates}
             className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-medium text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
           >
-            Clear
+            Clear Dates
           </button>
         </div>
       </form>
@@ -307,6 +354,12 @@ export default function BookPage() {
           Search results for{' '}
           <span className="font-medium">{formatDateTimeForDisplay(pickupAt)}</span> to{' '}
           <span className="font-medium">{formatDateTimeForDisplay(returnAt)}</span>
+          {selectedGroupId ? (
+            <>
+              {' '}
+              in <span className="font-medium">{selectedVehicleLabel || 'selected vehicle group'}</span>
+            </>
+          ) : null}
         </p>
       )}
 
@@ -350,9 +403,11 @@ export default function BookPage() {
             </p>
 
             <Link
-              href={`/booking?groupId=${group.groupId}&pickupAt=${encodeURIComponent(
-                pickupAt
-              )}&returnAt=${encodeURIComponent(returnAt)}`}
+              href={`/booking?groupId=${encodeURIComponent(
+                group.groupId
+              )}&pickupAt=${encodeURIComponent(pickupAt)}&returnAt=${encodeURIComponent(
+                returnAt
+              )}`}
               className="mt-4 inline-block rounded-xl border border-gray-300 bg-white px-4 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
             >
               Select Vehicle
@@ -369,9 +424,20 @@ export default function BookPage() {
 
       {!loading && hasSearched && groupedVehicles.length === 0 && !error && (
         <p className="mt-6 text-sm text-gray-500 dark:text-gray-400">
-          No vehicles are available for the selected dates.
+          {selectedGroupId
+            ? 'That vehicle is not available for the selected dates.'
+            : 'No vehicles are available for the selected dates.'}
         </p>
       )}
+
+      <div className="mt-10">
+        <Link
+          href="/vehicles"
+          className="text-sm text-gray-600 underline-offset-4 hover:underline dark:text-gray-300"
+        >
+          Back to Fleet
+        </Link>
+      </div>
     </main>
   );
 }

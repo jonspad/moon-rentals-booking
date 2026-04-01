@@ -80,12 +80,19 @@ function getVehicleDisplayName(vehicle: Vehicle) {
   }`;
 }
 
+function isValidDatetimeLocal(value: string | null) {
+  if (!value) return false;
+  return !Number.isNaN(new Date(value).getTime());
+}
+
 export default function BookingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const vehicleIdParam = searchParams.get('vehicleId');
   const groupId = searchParams.get('groupId');
+  const pickupAtParam = searchParams.get('pickupAt');
+  const returnAtParam = searchParams.get('returnAt');
 
   const [fleetVehicles, setFleetVehicles] = useState<Vehicle[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -99,8 +106,16 @@ export default function BookingPage() {
   const defaultPickup = new Date(now.getTime() + 60 * 60 * 1000);
   const defaultReturn = new Date(now.getTime() + 25 * 60 * 60 * 1000);
 
-  const [pickupAt, setPickupAt] = useState(toDatetimeLocalValue(defaultPickup));
-  const [returnAt, setReturnAt] = useState(toDatetimeLocalValue(defaultReturn));
+  const initialPickupAt = isValidDatetimeLocal(pickupAtParam)
+    ? pickupAtParam!
+    : toDatetimeLocalValue(defaultPickup);
+
+  const initialReturnAt = isValidDatetimeLocal(returnAtParam)
+    ? returnAtParam!
+    : toDatetimeLocalValue(defaultReturn);
+
+  const [pickupAt, setPickupAt] = useState(initialPickupAt);
+  const [returnAt, setReturnAt] = useState(initialReturnAt);
   const [selectedVehicleId, setSelectedVehicleId] = useState<number | null>(
     vehicleIdParam ? Number(vehicleIdParam) : null
   );
@@ -335,10 +350,7 @@ export default function BookingPage() {
     <main className="min-h-screen bg-neutral-50 px-6 py-10 text-neutral-900">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6">
-          <Link
-            href="/vehicles"
-            className="text-sm text-neutral-600 hover:text-black"
-          >
+          <Link href="/vehicles" className="text-sm text-neutral-600 hover:text-black">
             ← Back to Fleet
           </Link>
         </div>
