@@ -2,26 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 function normalizeString(value: unknown) {
-  return typeof value === 'string' ? value.trim() : '';
+  if (typeof value !== 'string') return '';
+  return value.trim();
 }
 
-function normalizeNullableString(value: unknown) {
+function optionalString(value: unknown) {
   const normalized = normalizeString(value);
-  return normalized === '' ? null : normalized;
+  return normalized.length ? normalized : null;
 }
 
-function normalizeBoolean(value: unknown) {
-  return value === true || value === 'true';
-}
+function parseRequiredInt(value: unknown, fieldName: string) {
+  const num = Number(value);
 
-function normalizeInt(value: unknown, fieldName: string) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-    throw new Error(`${fieldName} must be a valid whole number.`);
+  if (!Number.isFinite(num) || !Number.isInteger(num)) {
+    throw new Error(`${fieldName} must be a whole number.`);
   }
 
-  return parsed;
+  return num;
+}
+
+function buildSlug(year: string | number, make: string, model: string) {
+  return `${year}-${make}-${model}`
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 export async function GET() {
@@ -32,7 +37,7 @@ export async function GET() {
 
     return NextResponse.json({ vehicles });
   } catch (error) {
-    console.error('Failed to load admin vehicles:', error);
+    console.error('GET /api/admin/vehicles error:', error);
     return NextResponse.json(
       { error: 'Failed to load vehicles.' },
       { status: 500 }
@@ -45,20 +50,24 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     const groupId = normalizeString(body.groupId);
-    const slug = normalizeString(body.slug).toLowerCase();
-    const vin = normalizeNullableString(body.vin);
+    const year = parseRequiredInt(body.year, 'Year');
     const make = normalizeString(body.make);
     const model = normalizeString(body.model);
     const category = normalizeString(body.category);
     const color = normalizeString(body.color);
+    const seats = parseRequiredInt(body.seats, 'Seats');
     const transmission = normalizeString(body.transmission);
+    const pricePerDay = parseRequiredInt(body.pricePerDay, 'Price per day');
     const image = normalizeString(body.image);
     const description = normalizeString(body.description);
-    const isActive = normalizeBoolean(body.isActive);
+    const vin = optionalString(body.vin);
+    const licensePlate = optionalString(body.licensePlate);
+    const isActive = Boolean(body.isActive);
 
-    const year = normalizeInt(body.year, 'Year');
-    const seats = normalizeInt(body.seats, 'Seats');
-    const pricePerDay = normalizeInt(body.pricePerDay, 'Price per day');
+    let slug = normalizeString(body.slug);
+    if (!slug) {
+      slug = buildSlug(year, make, model);
+    }
 
     if (
       !groupId ||
@@ -85,23 +94,16 @@ export async function POST(req: NextRequest) {
     if (existingSlug) {
       return NextResponse.json(
         { error: 'A vehicle with that slug already exists.' },
-        { status: 400 }
+        { status: 409 }
       );
     }
 
-    const lastVehicle = await prisma.vehicle.findFirst({
-      orderBy: { id: 'desc' },
-      select: { id: true },
-    });
-
-    const nextId = (lastVehicle?.id ?? 0) + 1;
-
-    const created = await prisma.vehicle.create({
+    const vehicle = await prisma.vehicle.create({
       data: {
-        id: nextId,
         groupId,
         slug,
         vin,
+        licensePlate,
         year,
         make,
         model,
@@ -116,9 +118,9 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ vehicle: created }, { status: 201 });
+    return NextResponse.json({ vehicle }, { status: 201 });
   } catch (error) {
-    console.error('Failed to create vehicle:', error);
+    console.error('POST /api/admin/vehicles error:', error);
 
     const message =
       error instanceof Error ? error.message : 'Failed to create vehicle.';

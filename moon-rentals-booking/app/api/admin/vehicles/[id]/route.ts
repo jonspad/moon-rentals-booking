@@ -2,70 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 function normalizeString(value: unknown) {
-  return typeof value === 'string' ? value.trim() : '';
+  if (typeof value !== 'string') return '';
+  return value.trim();
 }
 
-function normalizeNullableString(value: unknown) {
+function optionalString(value: unknown) {
   const normalized = normalizeString(value);
-  return normalized === '' ? null : normalized;
+  return normalized.length ? normalized : null;
 }
 
-function normalizeBoolean(value: unknown) {
-  return value === true || value === 'true';
-}
+function parseOptionalInt(value: unknown) {
+  if (value === undefined || value === null || value === '') return undefined;
 
-function normalizeOptionalInt(value: unknown, fieldName: string) {
-  if (value === undefined || value === null || value === '') {
-    return undefined;
+  const num = Number(value);
+
+  if (!Number.isFinite(num) || !Number.isInteger(num)) {
+    throw new Error('Numeric fields must be whole numbers.');
   }
 
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-    throw new Error(`${fieldName} must be a valid whole number.`);
-  }
-
-  return parsed;
-}
-
-function parseVehicleId(value: string) {
-  const id = Number(value);
-
-  if (!Number.isFinite(id) || !Number.isInteger(id)) {
-    throw new Error('Invalid vehicle id.');
-  }
-
-  return id;
-}
-
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const vehicleId = parseVehicleId(id);
-
-    const vehicle = await prisma.vehicle.findUnique({
-      where: { id: vehicleId },
-    });
-
-    if (!vehicle) {
-      return NextResponse.json(
-        { error: 'Vehicle not found.' },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ vehicle });
-  } catch (error) {
-    console.error('Failed to load vehicle:', error);
-
-    const message =
-      error instanceof Error ? error.message : 'Failed to load vehicle.';
-
-    return NextResponse.json({ error: message }, { status: 400 });
-  }
+  return num;
 }
 
 export async function PATCH(
@@ -74,88 +29,59 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const vehicleId = parseVehicleId(id);
-    const body = await req.json();
+    const vehicleId = Number(id);
 
-    const existingVehicle = await prisma.vehicle.findUnique({
-      where: { id: vehicleId },
-    });
-
-    if (!existingVehicle) {
-      return NextResponse.json(
-        { error: 'Vehicle not found.' },
-        { status: 404 }
-      );
+    if (!Number.isFinite(vehicleId)) {
+      return NextResponse.json({ error: 'Invalid vehicle id.' }, { status: 400 });
     }
 
-    const data: {
-      groupId?: string;
-      slug?: string;
-      vin?: string | null;
-      year?: number;
-      make?: string;
-      model?: string;
-      category?: string;
-      color?: string;
-      seats?: number;
-      transmission?: string;
-      pricePerDay?: number;
-      image?: string;
-      description?: string;
-      isActive?: boolean;
-    } = {};
+    const body = await req.json();
+
+    const data: Record<string, unknown> = {};
 
     if ('groupId' in body) data.groupId = normalizeString(body.groupId);
-    if ('slug' in body) data.slug = normalizeString(body.slug).toLowerCase();
-    if ('vin' in body) data.vin = normalizeNullableString(body.vin);
+    if ('slug' in body) data.slug = normalizeString(body.slug);
+    if ('vin' in body) data.vin = optionalString(body.vin);
+    if ('licensePlate' in body) data.licensePlate = optionalString(body.licensePlate);
+    if ('year' in body) data.year = parseOptionalInt(body.year);
     if ('make' in body) data.make = normalizeString(body.make);
     if ('model' in body) data.model = normalizeString(body.model);
     if ('category' in body) data.category = normalizeString(body.category);
     if ('color' in body) data.color = normalizeString(body.color);
-    if ('transmission' in body) {
-      data.transmission = normalizeString(body.transmission);
-    }
+    if ('seats' in body) data.seats = parseOptionalInt(body.seats);
+    if ('transmission' in body) data.transmission = normalizeString(body.transmission);
+    if ('pricePerDay' in body) data.pricePerDay = parseOptionalInt(body.pricePerDay);
     if ('image' in body) data.image = normalizeString(body.image);
-    if ('description' in body) {
-      data.description = normalizeString(body.description);
-    }
-    if ('isActive' in body) data.isActive = normalizeBoolean(body.isActive);
+    if ('description' in body) data.description = normalizeString(body.description);
+    if ('isActive' in body) data.isActive = Boolean(body.isActive);
 
-    const year = normalizeOptionalInt(body.year, 'Year');
-    const seats = normalizeOptionalInt(body.seats, 'Seats');
-    const pricePerDay = normalizeOptionalInt(body.pricePerDay, 'Price per day');
-
-    if (year !== undefined) data.year = year;
-    if (seats !== undefined) data.seats = seats;
-    if (pricePerDay !== undefined) data.pricePerDay = pricePerDay;
-
-    if (data.slug && data.slug !== existingVehicle.slug) {
-      const duplicateSlug = await prisma.vehicle.findUnique({
+    if (typeof data.slug === 'string' && data.slug.length > 0) {
+      const existingSlug = await prisma.vehicle.findUnique({
         where: { slug: data.slug },
         select: { id: true },
       });
 
-      if (duplicateSlug) {
+      if (existingSlug && existingSlug.id !== vehicleId) {
         return NextResponse.json(
           { error: 'Another vehicle already uses that slug.' },
-          { status: 400 }
+          { status: 409 }
         );
       }
     }
 
-    const updated = await prisma.vehicle.update({
+    const vehicle = await prisma.vehicle.update({
       where: { id: vehicleId },
       data,
     });
 
-    return NextResponse.json({ vehicle: updated });
+    return NextResponse.json({ vehicle });
   } catch (error) {
-    console.error('Failed to update vehicle:', error);
+    console.error('PATCH /api/admin/vehicles/[id] error:', error);
 
     const message =
       error instanceof Error ? error.message : 'Failed to update vehicle.';
 
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -165,24 +91,10 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const vehicleId = parseVehicleId(id);
+    const vehicleId = Number(id);
 
-    const bookingCount = await prisma.booking.count({
-      where: { vehicleId },
-    });
-
-    const blockCount = await prisma.vehicleBlock.count({
-      where: { vehicleId },
-    });
-
-    if (bookingCount > 0 || blockCount > 0) {
-      return NextResponse.json(
-        {
-          error:
-            'This vehicle has related bookings or blocks. Set it inactive instead of deleting it.',
-        },
-        { status: 400 }
-      );
+    if (!Number.isFinite(vehicleId)) {
+      return NextResponse.json({ error: 'Invalid vehicle id.' }, { status: 400 });
     }
 
     await prisma.vehicle.delete({
@@ -191,11 +103,10 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Failed to delete vehicle:', error);
-
-    const message =
-      error instanceof Error ? error.message : 'Failed to delete vehicle.';
-
-    return NextResponse.json({ error: message }, { status: 400 });
+    console.error('DELETE /api/admin/vehicles/[id] error:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete vehicle.' },
+      { status: 500 }
+    );
   }
 }
