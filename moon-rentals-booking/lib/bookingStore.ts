@@ -1,5 +1,4 @@
-import fs from 'fs/promises';
-import path from 'path';
+import { prisma } from './prisma';
 
 export type Booking = {
   id: number;
@@ -13,85 +12,87 @@ export type Booking = {
   createdAt: string;
 };
 
-const dataDirPath = path.join(process.cwd(), 'data');
-const bookingsFilePath = path.join(dataDirPath, 'bookings.json');
-
-async function ensureBookingsFile() {
-  try {
-    await fs.mkdir(dataDirPath, { recursive: true });
-    await fs.access(bookingsFilePath);
-  } catch {
-    await fs.writeFile(bookingsFilePath, '[]', 'utf-8');
-  }
+function mapBooking(booking: {
+  id: number;
+  vehicleId: number;
+  pickupAt: Date;
+  returnAt: Date;
+  fullName: string;
+  email: string;
+  phone: string;
+  status: string;
+  createdAt: Date;
+}): Booking {
+  return {
+    id: booking.id,
+    vehicleId: booking.vehicleId,
+    pickupAt: booking.pickupAt.toISOString(),
+    returnAt: booking.returnAt.toISOString(),
+    fullName: booking.fullName,
+    email: booking.email,
+    phone: booking.phone,
+    status: booking.status as Booking['status'],
+    createdAt: booking.createdAt.toISOString(),
+  };
 }
 
 export async function getBookings(): Promise<Booking[]> {
   try {
-    await ensureBookingsFile();
-    const fileContents = await fs.readFile(bookingsFilePath, 'utf-8');
-    return JSON.parse(fileContents) as Booking[];
+    const bookings = await prisma.booking.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return bookings.map(mapBooking);
   } catch (error) {
-    console.error('Error reading bookings.json:', error);
+    console.error('Error reading bookings from database:', error);
     return [];
   }
-}
-
-async function saveBookings(bookings: Booking[]): Promise<void> {
-  await ensureBookingsFile();
-  await fs.writeFile(
-    bookingsFilePath,
-    JSON.stringify(bookings, null, 2),
-    'utf-8'
-  );
 }
 
 export async function addBooking(
   booking: Omit<Booking, 'id' | 'createdAt'>
 ): Promise<Booking> {
-  const bookings = await getBookings();
-  const nextId =
-    bookings.length > 0 ? Math.max(...bookings.map((b) => b.id)) + 1 : 1;
+  const created = await prisma.booking.create({
+    data: {
+      vehicleId: booking.vehicleId,
+      pickupAt: new Date(booking.pickupAt),
+      returnAt: new Date(booking.returnAt),
+      fullName: booking.fullName,
+      email: booking.email,
+      phone: booking.phone,
+      status: booking.status,
+    },
+  });
 
-  const newBooking: Booking = {
-    id: nextId,
-    createdAt: new Date().toISOString(),
-    ...booking,
-  };
-
-  bookings.push(newBooking);
-  await saveBookings(bookings);
-
-  return newBooking;
+  return mapBooking(created);
 }
 
 export async function updateBookingStatus(
   id: number,
   status: Booking['status']
 ): Promise<Booking | null> {
-  const bookings = await getBookings();
-  const index = bookings.findIndex((booking) => booking.id === id);
+  try {
+    const updated = await prisma.booking.update({
+      where: { id },
+      data: { status },
+    });
 
-  if (index === -1) {
+    return mapBooking(updated);
+  } catch (error) {
+    console.error(`Error updating booking ${id}:`, error);
     return null;
   }
-
-  bookings[index] = {
-    ...bookings[index],
-    status,
-  };
-
-  await saveBookings(bookings);
-  return bookings[index];
 }
 
 export async function deleteBooking(id: number): Promise<boolean> {
-  const bookings = await getBookings();
-  const updatedBookings = bookings.filter((booking) => booking.id !== id);
+  try {
+    await prisma.booking.delete({
+      where: { id },
+    });
 
-  if (updatedBookings.length === bookings.length) {
+    return true;
+  } catch (error) {
+    console.error(`Error deleting booking ${id}:`, error);
     return false;
   }
-
-  await saveBookings(updatedBookings);
-  return true;
 }

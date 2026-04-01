@@ -1,5 +1,4 @@
-import fs from 'fs/promises';
-import path from 'path';
+import { prisma } from './prisma';
 
 export type VehicleBlock = {
   id: number;
@@ -9,61 +8,59 @@ export type VehicleBlock = {
   reason: string;
 };
 
-const dataDirPath = path.join(process.cwd(), 'data');
-const blocksFilePath = path.join(dataDirPath, 'blocks.json');
-
-async function ensureBlocksFile() {
-  try {
-    await fs.mkdir(dataDirPath, { recursive: true });
-    await fs.access(blocksFilePath);
-  } catch {
-    await fs.writeFile(blocksFilePath, '[]', 'utf-8');
-  }
+function mapBlock(block: {
+  id: number;
+  vehicleId: number;
+  startAt: Date;
+  endAt: Date;
+  reason: string | null;
+}): VehicleBlock {
+  return {
+    id: block.id,
+    vehicleId: block.vehicleId,
+    start: block.startAt.toISOString(),
+    end: block.endAt.toISOString(),
+    reason: block.reason ?? '',
+  };
 }
 
 export async function getBlocks(): Promise<VehicleBlock[]> {
   try {
-    await ensureBlocksFile();
-    const fileContents = await fs.readFile(blocksFilePath, 'utf-8');
-    return JSON.parse(fileContents) as VehicleBlock[];
+    const blocks = await prisma.vehicleBlock.findMany({
+      orderBy: { startAt: 'asc' },
+    });
+
+    return blocks.map(mapBlock);
   } catch (error) {
-    console.error('Error reading blocks.json:', error);
+    console.error('Error reading blocks from database:', error);
     return [];
   }
-}
-
-async function saveBlocks(blocks: VehicleBlock[]): Promise<void> {
-  await ensureBlocksFile();
-  await fs.writeFile(blocksFilePath, JSON.stringify(blocks, null, 2), 'utf-8');
 }
 
 export async function addBlock(
   block: Omit<VehicleBlock, 'id'>
 ): Promise<VehicleBlock> {
-  const blocks = await getBlocks();
+  const created = await prisma.vehicleBlock.create({
+    data: {
+      vehicleId: block.vehicleId,
+      startAt: new Date(block.start),
+      endAt: new Date(block.end),
+      reason: block.reason || '',
+    },
+  });
 
-  const nextId =
-    blocks.length > 0 ? Math.max(...blocks.map((b) => b.id)) + 1 : 1;
-
-  const newBlock: VehicleBlock = {
-    id: nextId,
-    ...block,
-  };
-
-  blocks.push(newBlock);
-  await saveBlocks(blocks);
-
-  return newBlock;
+  return mapBlock(created);
 }
 
 export async function deleteBlock(id: number): Promise<boolean> {
-  const blocks = await getBlocks();
-  const updatedBlocks = blocks.filter((block) => block.id !== id);
+  try {
+    await prisma.vehicleBlock.delete({
+      where: { id },
+    });
 
-  if (updatedBlocks.length === blocks.length) {
+    return true;
+  } catch (error) {
+    console.error(`Error deleting block ${id}:`, error);
     return false;
   }
-
-  await saveBlocks(updatedBlocks);
-  return true;
 }
