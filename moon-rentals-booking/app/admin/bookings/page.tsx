@@ -333,7 +333,7 @@ export default function AdminBookingsPage() {
               </div>
             </div>
           ))
-      )}k
+      )}
     </section>
   );
 }
