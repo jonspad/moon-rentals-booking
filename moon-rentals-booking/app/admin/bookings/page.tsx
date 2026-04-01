@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type Booking = {
   id: number;
@@ -44,6 +44,24 @@ function formatDateTime(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function getStatusClasses(status: Booking['status']) {
+  if (status === 'confirmed') {
+    return 'border-green-200 bg-green-50 text-green-700';
+  }
+
+  if (status === 'cancelled') {
+    return 'border-red-200 bg-red-50 text-red-700';
+  }
+
+  return 'border-yellow-200 bg-yellow-50 text-yellow-700';
+}
+
+function getStatusPriority(status: Booking['status']) {
+  if (status === 'pending') return 0;
+  if (status === 'confirmed') return 1;
+  return 2;
 }
 
 export default function AdminBookingsPage() {
@@ -124,7 +142,14 @@ export default function AdminBookingsPage() {
         return;
       }
 
-      setMessage(`Booking #${bookingId} updated to ${status}.`);
+      if (status === 'confirmed') {
+        setMessage(`Booking #${bookingId} approved.`);
+      } else if (status === 'cancelled') {
+        setMessage(`Booking #${bookingId} rejected.`);
+      } else {
+        setMessage(`Booking #${bookingId} moved back to pending.`);
+      }
+
       await loadBookings();
     } catch (err) {
       console.error('Failed to update booking status:', err);
@@ -177,163 +202,235 @@ export default function AdminBookingsPage() {
     return `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
   }
 
-  function getStatusClasses(status: Booking['status']) {
-    if (status === 'confirmed') {
-      return 'bg-green-50 text-green-700 border-green-200';
-    }
+  const sortedBookings = useMemo(() => {
+    return bookings
+      .slice()
+      .sort((a, b) => {
+        const statusDiff =
+          getStatusPriority(a.status) - getStatusPriority(b.status);
 
-    if (status === 'cancelled') {
-      return 'bg-red-50 text-red-700 border-red-200';
-    }
+        if (statusDiff !== 0) return statusDiff;
 
-    return 'bg-yellow-50 text-yellow-700 border-yellow-200';
-  }
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+  }, [bookings]);
+
+  const pendingCount = bookings.filter((b) => b.status === 'pending').length;
+  const confirmedCount = bookings.filter(
+    (b) => b.status === 'confirmed'
+  ).length;
+  const cancelledCount = bookings.filter(
+    (b) => b.status === 'cancelled'
+  ).length;
 
   return (
-    <section className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold">Bookings</h2>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-          Review customer booking requests, update status, or remove a booking.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold text-gray-900 dark:text-white">
+              Bookings
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm text-gray-600 dark:text-gray-300">
+              Review customer booking requests, approve or reject them, and keep
+              the reservation workflow organized.
+            </p>
+          </div>
+
+          <button
+            onClick={refreshData}
+            className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-gray-700 dark:text-white dark:hover:bg-gray-900"
+          >
+            Refresh
+          </button>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5 shadow-sm">
+          <div className="text-sm font-medium text-yellow-800">
+            Pending Approval
+          </div>
+          <div className="mt-2 text-3xl font-semibold text-yellow-900">
+            {pendingCount}
+          </div>
+          <p className="mt-2 text-sm text-yellow-800">
+            Booking requests that still need action.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm">
+          <div className="text-sm font-medium text-green-800">Approved</div>
+          <div className="mt-2 text-3xl font-semibold text-green-900">
+            {confirmedCount}
+          </div>
+          <p className="mt-2 text-sm text-green-800">
+            Reservations that have been approved.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
+          <div className="text-sm font-medium text-red-800">Rejected</div>
+          <div className="mt-2 text-3xl font-semibold text-red-900">
+            {cancelledCount}
+          </div>
+          <p className="mt-2 text-sm text-red-800">
+            Requests that were declined or cancelled.
+          </p>
+        </div>
+      </section>
 
       {message ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+        <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
           {message}
         </div>
       ) : null}
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
-      {loading ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
-          Loading bookings...
-        </div>
-      ) : bookings.length === 0 ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
-          No bookings found yet.
-        </div>
-      ) : (
-        bookings
-          .slice()
-          .sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          )
-          .map((booking) => (
-            <div
-              key={booking.id}
-              className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950"
-            >
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h3 className="text-lg font-semibold">
-                      {getVehicleLabel(booking.vehicleId)}
-                    </h3>
-                    <span className="text-sm text-gray-500">
-                      Booking #{booking.id}
-                    </span>
-                    <span
-                      className={`rounded-full border px-3 py-1 text-xs font-medium ${getStatusClasses(
-                        booking.status
-                      )}`}
-                    >
-                      {booking.status}
-                    </span>
-                  </div>
+      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        {loading ? (
+          <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
+            Loading bookings...
+          </div>
+        ) : sortedBookings.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
+            No bookings found yet.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {sortedBookings.map((booking) => {
+              const statusClasses = getStatusClasses(booking.status);
+              const isPending = booking.status === 'pending';
+              const isConfirmed = booking.status === 'confirmed';
+              const isCancelled = booking.status === 'cancelled';
 
-                  <div className="space-y-1 text-sm text-gray-600 dark:text-gray-300">
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Customer:
-                      </span>{' '}
-                      {booking.fullName}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Email:
-                      </span>{' '}
-                      {booking.email}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Phone:
-                      </span>{' '}
-                      {booking.phone}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Pickup:
-                      </span>{' '}
-                      {formatDateTime(booking.pickupAt)}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Return:
-                      </span>{' '}
-                      {formatDateTime(booking.returnAt)}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Created:
-                      </span>{' '}
-                      {formatDateTime(booking.createdAt)}
-                    </p>
+              return (
+                <div
+                  key={booking.id}
+                  className={`rounded-2xl border p-5 shadow-sm ${
+                    isPending
+                      ? 'border-yellow-200 bg-yellow-50/60'
+                      : isConfirmed
+                      ? 'border-green-200 bg-green-50/50'
+                      : 'border-red-200 bg-red-50/40'
+                  }`}
+                >
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                          {getVehicleLabel(booking.vehicleId)}
+                        </h2>
+
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium capitalize ${statusClasses}`}
+                        >
+                          {booking.status}
+                        </span>
+
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          Booking #{booking.id}
+                        </span>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Customer
+                          </div>
+                          <div className="mt-1 font-medium text-gray-900 dark:text-white">
+                            {booking.fullName}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-300">
+                            {booking.email}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-300">
+                            {booking.phone}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Pickup
+                          </div>
+                          <div className="mt-1 text-sm text-gray-800 dark:text-gray-200">
+                            {formatDateTime(booking.pickupAt)}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Return
+                          </div>
+                          <div className="mt-1 text-sm text-gray-800 dark:text-gray-200">
+                            {formatDateTime(booking.returnAt)}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Submitted
+                          </div>
+                          <div className="mt-1 text-sm text-gray-800 dark:text-gray-200">
+                            {formatDateTime(booking.createdAt)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex min-w-[260px] flex-col gap-3 xl:items-stretch">
+                      <button
+                        onClick={() => updateStatus(booking.id, 'confirmed')}
+                        disabled={updatingId === booking.id || isConfirmed}
+                        className="rounded-xl border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {updatingId === booking.id && !isConfirmed
+                          ? 'Updating...'
+                          : 'Approve'}
+                      </button>
+
+                      <button
+                        onClick={() => updateStatus(booking.id, 'cancelled')}
+                        disabled={updatingId === booking.id || isCancelled}
+                        className="rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {updatingId === booking.id && !isCancelled
+                          ? 'Updating...'
+                          : 'Reject'}
+                      </button>
+
+                      <button
+                        onClick={() => updateStatus(booking.id, 'pending')}
+                        disabled={updatingId === booking.id || isPending}
+                        className="rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-700 transition hover:bg-yellow-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {updatingId === booking.id && !isPending
+                          ? 'Updating...'
+                          : 'Mark Pending'}
+                      </button>
+
+                      <button
+                        onClick={() => deleteBooking(booking.id)}
+                        disabled={deletingId === booking.id}
+                        className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-900"
+                      >
+                        {deletingId === booking.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
                   </div>
                 </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => updateStatus(booking.id, 'confirmed')}
-                    disabled={updatingId === booking.id || booking.status === 'confirmed'}
-                    className="rounded-xl border px-4 py-2 text-sm font-medium disabled:opacity-50"
-                  >
-                    {updatingId === booking.id && booking.status !== 'confirmed'
-                      ? 'Updating...'
-                      : 'Confirm'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => updateStatus(booking.id, 'cancelled')}
-                    disabled={updatingId === booking.id || booking.status === 'cancelled'}
-                    className="rounded-xl border px-4 py-2 text-sm font-medium disabled:opacity-50"
-                  >
-                    {updatingId === booking.id && booking.status !== 'cancelled'
-                      ? 'Updating...'
-                      : 'Cancel'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => updateStatus(booking.id, 'pending')}
-                    disabled={updatingId === booking.id || booking.status === 'pending'}
-                    className="rounded-xl border px-4 py-2 text-sm font-medium disabled:opacity-50"
-                  >
-                    {updatingId === booking.id && booking.status !== 'pending'
-                      ? 'Updating...'
-                      : 'Mark Pending'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => deleteBooking(booking.id)}
-                    disabled={deletingId === booking.id}
-                    className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
-                  >
-                    {deletingId === booking.id ? 'Deleting...' : 'Delete'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))
-      )}
-    </section>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }

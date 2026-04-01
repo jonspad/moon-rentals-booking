@@ -71,7 +71,8 @@ export async function POST(req: NextRequest) {
       if (isBlocked) return false;
 
       const vehicleBookings = bookings.filter(
-        (booking) => booking.vehicleId === vehicle.id && booking.status !== 'cancelled'
+        (booking) =>
+          booking.vehicleId === vehicle.id && booking.status === 'confirmed'
       );
 
       const isBooked = vehicleBookings.some((booking) => {
