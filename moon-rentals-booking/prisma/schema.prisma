@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Vehicle {
+  id            Int            @id
+  groupId       String
+  slug          String         @unique
+  vin           String?
+  year          Int
+  make          String
+  model         String
+  category      String
+  color         String
+  seats         Int
+  transmission  String
+  pricePerDay   Int
+  image         String
+  description   String
+  isActive      Boolean        @default(true)
+  bookings      Booking[]
+  blocks        VehicleBlock[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([groupId])
+  @@index([category])
+  @@index([isActive])
+}
+
+model Booking {
+  id         Int      @id @default(autoincrement())
+  vehicleId  Int
+  fullName   String
+  email      String
+  phone      String
+  pickupAt   DateTime
+  returnAt   DateTime
+  status     String   @default("confirmed")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  @@index([vehicleId])
+  @@index([pickupAt, returnAt])
+  @@index([status])
+}
+
+model VehicleBlock {
+  id         Int      @id @default(autoincrement())
+  vehicleId  Int
+  startAt    DateTime
+  endAt      DateTime
+  reason     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  @@index([vehicleId])
+  @@index([startAt, endAt])
+}
+
+model AdminUser {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
