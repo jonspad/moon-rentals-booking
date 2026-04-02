@@ -1,5 +1,7 @@
 import { prisma } from './prisma';
 
+export type BookingStatus = 'pending' | 'confirmed' | 'cancelled';
+
 export type Booking = {
   id: number;
   vehicleId: number;
@@ -8,7 +10,11 @@ export type Booking = {
   fullName: string;
   email: string;
   phone: string;
-  status: 'pending' | 'confirmed' | 'cancelled';
+  status: BookingStatus;
+  rejectionReason: string | null;
+  lastAdminMessageSubject: string | null;
+  lastAdminMessageBody: string | null;
+  lastAdminMessagedAt: string | null;
   createdAt: string;
 };
 
@@ -21,6 +27,10 @@ function mapBooking(booking: {
   email: string;
   phone: string;
   status: string;
+  rejectionReason: string | null;
+  lastAdminMessageSubject: string | null;
+  lastAdminMessageBody: string | null;
+  lastAdminMessagedAt: Date | null;
   createdAt: Date;
 }): Booking {
   return {
@@ -31,7 +41,13 @@ function mapBooking(booking: {
     fullName: booking.fullName,
     email: booking.email,
     phone: booking.phone,
-    status: booking.status as Booking['status'],
+    status: booking.status as BookingStatus,
+    rejectionReason: booking.rejectionReason,
+    lastAdminMessageSubject: booking.lastAdminMessageSubject,
+    lastAdminMessageBody: booking.lastAdminMessageBody,
+    lastAdminMessagedAt: booking.lastAdminMessagedAt
+      ? booking.lastAdminMessagedAt.toISOString()
+      : null,
     createdAt: booking.createdAt.toISOString(),
   };
 }
@@ -50,7 +66,15 @@ export async function getBookings(): Promise<Booking[]> {
 }
 
 export async function addBooking(
-  booking: Omit<Booking, 'id' | 'createdAt'>
+  booking: Omit<
+    Booking,
+    | 'id'
+    | 'createdAt'
+    | 'rejectionReason'
+    | 'lastAdminMessageSubject'
+    | 'lastAdminMessageBody'
+    | 'lastAdminMessagedAt'
+  >
 ): Promise<Booking> {
   const created = await prisma.booking.create({
     data: {
@@ -69,12 +93,21 @@ export async function addBooking(
 
 export async function updateBookingStatus(
   id: number,
-  status: Booking['status']
+  status: BookingStatus,
+  options?: { rejectionReason?: string | null }
 ): Promise<Booking | null> {
   try {
+    const rejectionReason =
+      status === 'cancelled'
+        ? (options?.rejectionReason || '').trim() || null
+        : null;
+
     const updated = await prisma.booking.update({
       where: { id },
-      data: { status },
+      data: {
+        status,
+        rejectionReason,
+      },
     });
 
     return mapBooking(updated);
@@ -84,12 +117,33 @@ export async function updateBookingStatus(
   }
 }
 
+export async function recordAdminMessage(
+  id: number,
+  subject: string,
+  body: string
+): Promise<Booking | null> {
+  try {
+    const updated = await prisma.booking.update({
+      where: { id },
+      data: {
+        lastAdminMessageSubject: subject.trim(),
+        lastAdminMessageBody: body.trim(),
+        lastAdminMessagedAt: new Date(),
+      },
+    });
+
+    return mapBooking(updated);
+  } catch (error) {
+    console.error(`Error recording admin message for booking ${id}:`, error);
+    return null;
+  }
+}
+
 export async function deleteBooking(id: number): Promise<boolean> {
   try {
     await prisma.booking.delete({
       where: { id },
     });
-
     return true;
   } catch (error) {
     console.error(`Error deleting booking ${id}:`, error);

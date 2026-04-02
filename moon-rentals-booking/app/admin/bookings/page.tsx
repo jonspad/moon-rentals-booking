@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type Booking = {
   id: number;
@@ -11,6 +11,10 @@ type Booking = {
   email: string;
   phone: string;
   status: 'pending' | 'confirmed' | 'cancelled';
+  rejectionReason: string | null;
+  lastAdminMessageSubject: string | null;
+  lastAdminMessageBody: string | null;
+  lastAdminMessagedAt: string | null;
   createdAt: string;
 };
 
@@ -30,11 +34,10 @@ type Vehicle = {
   isActive: boolean;
 };
 
-type FilterKey = 'pending' | 'confirmed' | 'cancelled' | 'all';
+function formatDateTime(value: string | null) {
+  if (!value) return '—';
 
-function formatDateTime(value: string) {
   const parsed = new Date(value);
-
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
@@ -48,30 +51,6 @@ function formatDateTime(value: string) {
   });
 }
 
-function getStatusClasses(status: Booking['status']) {
-  if (status === 'confirmed') {
-    return 'border-green-200 bg-green-50 text-green-700';
-  }
-
-  if (status === 'cancelled') {
-    return 'border-red-200 bg-red-50 text-red-700';
-  }
-
-  return 'border-yellow-200 bg-yellow-50 text-yellow-700';
-}
-
-function getStatusPriority(status: Booking['status']) {
-  if (status === 'pending') return 0;
-  if (status === 'confirmed') return 1;
-  return 2;
-}
-
-function getFilterButtonClasses(isActive: boolean) {
-  return isActive
-    ? 'border-black bg-black text-white'
-    : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-white dark:hover:bg-gray-900';
-}
-
 export default function AdminBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -79,8 +58,13 @@ export default function AdminBookingsPage() {
   const [message, setMessage] = useState('');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [messagingId, setMessagingId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('pending');
+
+  const [rejectionReasons, setRejectionReasons] = useState<Record<number, string>>({});
+  const [messageSubjects, setMessageSubjects] = useState<Record<number, string>>({});
+  const [messageBodies, setMessageBodies] = useState<Record<number, string>>({});
+  const [openComposerId, setOpenComposerId] = useState<number | null>(null);
 
   async function loadBookings() {
     const res = await fetch('/api/bookings', { cache: 'no-store' });
@@ -132,6 +116,9 @@ export default function AdminBookingsPage() {
     setMessage('');
 
     try {
+      const rejectionReason =
+        status === 'cancelled' ? (rejectionReasons[bookingId] || '').trim() : '';
+
       const res = await fetch('/api/bookings', {
         method: 'PATCH',
         headers: {
@@ -140,6 +127,7 @@ export default function AdminBookingsPage() {
         body: JSON.stringify({
           id: bookingId,
           status,
+          rejectionReason,
         }),
       });
 
@@ -151,20 +139,68 @@ export default function AdminBookingsPage() {
         return;
       }
 
-      if (status === 'confirmed') {
-        setMessage(`Booking #${bookingId} approved.`);
-      } else if (status === 'cancelled') {
-        setMessage(`Booking #${bookingId} rejected.`);
-      } else {
-        setMessage(`Booking #${bookingId} moved back to pending.`);
-      }
-
+      setMessage(`Booking #${bookingId} updated to ${status}.`);
       await loadBookings();
     } catch (err) {
       console.error('Failed to update booking status:', err);
       setError('Failed to update booking status.');
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function sendGuestMessage(bookingId: number) {
+    setMessagingId(bookingId);
+    setError('');
+    setMessage('');
+
+    try {
+      const subject = (messageSubjects[bookingId] || '').trim();
+      const body = (messageBodies[bookingId] || '').trim();
+
+      if (!subject || !body) {
+        setError('Please enter both a subject and a message before sending.');
+        return;
+      }
+
+      const res = await fetch('/api/bookings/message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bookingId,
+          subject,
+          message: body,
+        }),
+      });
+
+      const rawText = await res.text();
+      const data = rawText ? JSON.parse(rawText) : {};
+
+      if (!res.ok) {
+        setError(data.error || 'Failed to send guest message.');
+        return;
+      }
+
+      setMessage(`Message sent to guest for booking #${bookingId}.`);
+
+      setMessageSubjects((prev) => ({
+        ...prev,
+        [bookingId]: '',
+      }));
+
+      setMessageBodies((prev) => ({
+        ...prev,
+        [bookingId]: '',
+      }));
+
+      await loadBookings();
+    } catch (err) {
+      console.error('Failed to send guest message:', err);
+      setError('Failed to send guest message.');
+    } finally {
+      setMessagingId(null);
     }
   }
 
@@ -205,325 +241,291 @@ export default function AdminBookingsPage() {
 
   function getVehicleLabel(vehicleId: number) {
     const vehicle = vehicles.find((v) => v.id === vehicleId);
-
     if (!vehicle) return `Vehicle ${vehicleId}`;
-
     return `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
   }
 
-  const sortedBookings = useMemo(() => {
-    return bookings
-      .slice()
-      .sort((a, b) => {
-        const statusDiff =
-          getStatusPriority(a.status) - getStatusPriority(b.status);
-
-        if (statusDiff !== 0) return statusDiff;
-
-        return (
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-      });
-  }, [bookings]);
-
-  const pendingCount = bookings.filter((b) => b.status === 'pending').length;
-  const confirmedCount = bookings.filter(
-    (b) => b.status === 'confirmed'
-  ).length;
-  const cancelledCount = bookings.filter(
-    (b) => b.status === 'cancelled'
-  ).length;
-
-  const filteredBookings = useMemo(() => {
-    if (activeFilter === 'all') {
-      return sortedBookings;
+  function getStatusClasses(status: Booking['status']) {
+    if (status === 'confirmed') {
+      return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800';
     }
 
-    return sortedBookings.filter((booking) => booking.status === activeFilter);
-  }, [sortedBookings, activeFilter]);
+    if (status === 'cancelled') {
+      return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800';
+    }
 
-  const activeFilterLabel =
-    activeFilter === 'pending'
-      ? 'Pending Approval'
-      : activeFilter === 'confirmed'
-      ? 'Approved'
-      : activeFilter === 'cancelled'
-      ? 'Rejected'
-      : 'All Bookings';
+    return 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-300 dark:border-yellow-800';
+  }
+
+  const fieldClassName =
+    'mt-3 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white dark:placeholder:text-neutral-500';
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold text-gray-900 dark:text-white">
-              Bookings
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm text-gray-600 dark:text-gray-300">
-              Review customer booking requests, approve or reject them, and keep
-              the reservation workflow organized.
-            </p>
-          </div>
-
-          <button
-            onClick={refreshData}
-            className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-gray-700 dark:text-white dark:hover:bg-gray-900"
-          >
-            Refresh
-          </button>
-        </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <button
-          type="button"
-          onClick={() => setActiveFilter('pending')}
-          className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5 text-left shadow-sm transition hover:shadow-md"
-        >
-          <div className="text-sm font-medium text-yellow-800">
-            Pending Approval
-          </div>
-          <div className="mt-2 text-3xl font-semibold text-yellow-900">
-            {pendingCount}
-          </div>
-          <p className="mt-2 text-sm text-yellow-800">
-            Booking requests that still need action.
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveFilter('confirmed')}
-          className="rounded-2xl border border-green-200 bg-green-50 p-5 text-left shadow-sm transition hover:shadow-md"
-        >
-          <div className="text-sm font-medium text-green-800">Approved</div>
-          <div className="mt-2 text-3xl font-semibold text-green-900">
-            {confirmedCount}
-          </div>
-          <p className="mt-2 text-sm text-green-800">
-            Reservations that have been approved.
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveFilter('cancelled')}
-          className="rounded-2xl border border-red-200 bg-red-50 p-5 text-left shadow-sm transition hover:shadow-md"
-        >
-          <div className="text-sm font-medium text-red-800">Rejected</div>
-          <div className="mt-2 text-3xl font-semibold text-red-900">
-            {cancelledCount}
-          </div>
-          <p className="mt-2 text-sm text-red-800">
-            Requests that were declined or cancelled.
-          </p>
-        </button>
-      </section>
-
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              Filter Bookings
-            </h2>
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-              Currently viewing: {activeFilterLabel}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveFilter('pending')}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${getFilterButtonClasses(
-                activeFilter === 'pending'
-              )}`}
-            >
-              Pending ({pendingCount})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveFilter('confirmed')}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${getFilterButtonClasses(
-                activeFilter === 'confirmed'
-              )}`}
-            >
-              Approved ({confirmedCount})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveFilter('cancelled')}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${getFilterButtonClasses(
-                activeFilter === 'cancelled'
-              )}`}
-            >
-              Rejected ({cancelledCount})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveFilter('all')}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${getFilterButtonClasses(
-                activeFilter === 'all'
-              )}`}
-            >
-              All ({bookings.length})
-            </button>
-          </div>
-        </div>
-      </section>
+      <div>
+        <h1 className="text-2xl font-semibold">Bookings</h1>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          Review customer booking requests, approve or decline them, and message
+          guests directly from the admin panel.
+        </p>
+      </div>
 
       {message ? (
-        <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950/40 dark:text-green-300">
           {message}
         </div>
       ) : null}
 
       {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </div>
       ) : null}
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-        {loading ? (
-          <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
-            Loading bookings...
-          </div>
-        ) : filteredBookings.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
-            No bookings found for the current filter.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {filteredBookings.map((booking) => {
-              const statusClasses = getStatusClasses(booking.status);
-              const isPending = booking.status === 'pending';
-              const isConfirmed = booking.status === 'confirmed';
-              const isCancelled = booking.status === 'cancelled';
+      {loading ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 text-gray-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-white">
+          Loading bookings...
+        </div>
+      ) : bookings.length === 0 ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 text-gray-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-white">
+          No bookings found yet.
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {bookings
+            .slice()
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )
+            .map((booking) => {
+              const composerOpen = openComposerId === booking.id;
 
               return (
                 <div
                   key={booking.id}
-                  className={`rounded-2xl border p-5 shadow-sm ${
-                    isPending
-                      ? 'border-yellow-200 bg-yellow-50/60'
-                      : isConfirmed
-                      ? 'border-green-200 bg-green-50/50'
-                      : 'border-red-200 bg-red-50/40'
-                  }`}
+                  className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
                 >
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                          {getVehicleLabel(booking.vehicleId)}
-                        </h2>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-2 text-gray-900 dark:text-white">
+                      <div className="text-lg font-semibold">
+                        {getVehicleLabel(booking.vehicleId)}
+                      </div>
 
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                        <span>Booking #{booking.id}</span>
                         <span
-                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium capitalize ${statusClasses}`}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusClasses(
+                            booking.status
+                          )}`}
                         >
                           {booking.status}
                         </span>
-
-                        <span className="text-sm text-gray-500 dark:text-gray-400">
-                          Booking #{booking.id}
-                        </span>
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="space-y-1 text-sm">
                         <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            Customer
-                          </div>
-                          <div className="mt-1 font-medium text-gray-900 dark:text-white">
-                            {booking.fullName}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-300">
-                            {booking.email}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-300">
-                            {booking.phone}
-                          </div>
+                          <span className="font-medium">Customer:</span>{' '}
+                          {booking.fullName}
                         </div>
-
                         <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            Pickup
-                          </div>
-                          <div className="mt-1 text-sm text-gray-800 dark:text-gray-200">
-                            {formatDateTime(booking.pickupAt)}
-                          </div>
+                          <span className="font-medium">Email:</span>{' '}
+                          {booking.email}
                         </div>
-
                         <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            Return
-                          </div>
-                          <div className="mt-1 text-sm text-gray-800 dark:text-gray-200">
-                            {formatDateTime(booking.returnAt)}
-                          </div>
+                          <span className="font-medium">Phone:</span>{' '}
+                          {booking.phone}
                         </div>
-
                         <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            Submitted
-                          </div>
-                          <div className="mt-1 text-sm text-gray-800 dark:text-gray-200">
-                            {formatDateTime(booking.createdAt)}
-                          </div>
+                          <span className="font-medium">Pickup:</span>{' '}
+                          {formatDateTime(booking.pickupAt)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Return:</span>{' '}
+                          {formatDateTime(booking.returnAt)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Created:</span>{' '}
+                          {formatDateTime(booking.createdAt)}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex min-w-[260px] flex-col gap-3 xl:items-stretch">
+                    <div className="flex flex-wrap gap-2">
                       <button
+                        type="button"
                         onClick={() => updateStatus(booking.id, 'confirmed')}
-                        disabled={updatingId === booking.id || isConfirmed}
-                        className="rounded-xl border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={
+                          updatingId === booking.id ||
+                          booking.status === 'confirmed'
+                        }
+                        className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 disabled:opacity-50 dark:border-neutral-700 dark:text-white"
                       >
-                        {updatingId === booking.id && !isConfirmed
+                        {updatingId === booking.id &&
+                        booking.status !== 'confirmed'
                           ? 'Updating...'
-                          : 'Approve'}
+                          : 'Confirm'}
                       </button>
 
                       <button
+                        type="button"
                         onClick={() => updateStatus(booking.id, 'cancelled')}
-                        disabled={updatingId === booking.id || isCancelled}
-                        className="rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={
+                          updatingId === booking.id ||
+                          booking.status === 'cancelled'
+                        }
+                        className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50 dark:border-red-800 dark:text-red-300"
                       >
-                        {updatingId === booking.id && !isCancelled
+                        {updatingId === booking.id &&
+                        booking.status !== 'cancelled'
                           ? 'Updating...'
-                          : 'Reject'}
+                          : 'Cancel / Reject'}
                       </button>
 
                       <button
+                        type="button"
                         onClick={() => updateStatus(booking.id, 'pending')}
-                        disabled={updatingId === booking.id || isPending}
-                        className="rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-700 transition hover:bg-yellow-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={
+                          updatingId === booking.id || booking.status === 'pending'
+                        }
+                        className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 disabled:opacity-50 dark:border-neutral-700 dark:text-white"
                       >
-                        {updatingId === booking.id && !isPending
+                        {updatingId === booking.id &&
+                        booking.status !== 'pending'
                           ? 'Updating...'
                           : 'Mark Pending'}
                       </button>
 
                       <button
+                        type="button"
+                        onClick={() =>
+                          setOpenComposerId((prev) =>
+                            prev === booking.id ? null : booking.id
+                          )
+                        }
+                        className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 dark:border-neutral-700 dark:text-white"
+                      >
+                        {composerOpen ? 'Close Message' : 'Message Guest'}
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => deleteBooking(booking.id)}
                         disabled={deletingId === booking.id}
-                        className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-900"
+                        className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50 dark:border-red-800 dark:text-red-300"
                       >
                         {deletingId === booking.id ? 'Deleting...' : 'Delete'}
                       </button>
                     </div>
                   </div>
+
+                  <div className="mt-5 grid gap-5 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                        Rejection / cancellation message
+                      </div>
+                      <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        This message will be included if you cancel or reject the
+                        booking.
+                      </p>
+
+                      <textarea
+                        value={rejectionReasons[booking.id] ?? booking.rejectionReason ?? ''}
+                        onChange={(e) =>
+                          setRejectionReasons((prev) => ({
+                            ...prev,
+                            [booking.id]: e.target.value,
+                          }))
+                        }
+                        rows={5}
+                        className={fieldClassName}
+                        placeholder="Example: We’re unable to approve this request because the vehicle is unavailable for the requested dates."
+                      />
+
+                      {booking.rejectionReason ? (
+                        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                          Current saved message: {booking.rejectionReason}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                        Last guest message
+                      </div>
+                      <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        Most recent manual email sent from admin.
+                      </p>
+
+                      <div className="mt-3 space-y-2 text-sm text-gray-900 dark:text-white">
+                        <div>
+                          <span className="font-medium">Subject:</span>{' '}
+                          {booking.lastAdminMessageSubject || '—'}
+                        </div>
+                        <div>
+                          <span className="font-medium">Sent:</span>{' '}
+                          {formatDateTime(booking.lastAdminMessagedAt)}
+                        </div>
+                        <div className="whitespace-pre-wrap rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white">
+                          {booking.lastAdminMessageBody || 'No manual guest message sent yet.'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {composerOpen ? (
+                    <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                        Send message to guest
+                      </div>
+                      <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        Use this for follow-up questions, requesting more info, or
+                        providing updates.
+                      </p>
+
+                      <input
+                        type="text"
+                        value={messageSubjects[booking.id] ?? ''}
+                        onChange={(e) =>
+                          setMessageSubjects((prev) => ({
+                            ...prev,
+                            [booking.id]: e.target.value,
+                          }))
+                        }
+                        className={fieldClassName}
+                        placeholder="Subject"
+                      />
+
+                      <textarea
+                        value={messageBodies[booking.id] ?? ''}
+                        onChange={(e) =>
+                          setMessageBodies((prev) => ({
+                            ...prev,
+                            [booking.id]: e.target.value,
+                          }))
+                        }
+                        rows={6}
+                        className={fieldClassName}
+                        placeholder="Write your message to the guest here..."
+                      />
+
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => sendGuestMessage(booking.id)}
+                          disabled={messagingId === booking.id}
+                          className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 disabled:opacity-50 dark:border-neutral-700 dark:text-white"
+                        >
+                          {messagingId === booking.id ? 'Sending...' : 'Send Guest Message'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
-          </div>
-        )}
-      </section>
+        </div>
+      )}
     </div>
   );
 }
