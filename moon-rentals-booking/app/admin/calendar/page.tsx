@@ -23,6 +23,7 @@ type Vehicle = {
   make: string;
   model: string;
   category: string;
+  color: string;
   seats: number;
   transmission: string;
   pricePerDay: number;
@@ -41,6 +42,7 @@ type VehicleBlock = {
 
 type CalendarEventType = 'booking' | 'block';
 type CalendarFilter = 'all' | 'bookings' | 'blocks';
+type BlockScope = 'single' | 'all';
 
 type CalendarEvent = {
   id: string;
@@ -53,6 +55,33 @@ type CalendarEvent = {
   end: string;
   status?: Booking['status'];
 };
+
+type TimeOption = {
+  value: string;
+  label: string;
+};
+
+function generateTimeOptions(): TimeOption[] {
+  const options: TimeOption[] = [];
+
+  for (let hour = 0; hour < 24; hour++) {
+    for (const minute of [0, 30]) {
+      const value = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+      const ampm = hour < 12 ? 'AM' : 'PM';
+      const label = `${displayHour}:${String(minute).padStart(2, '0')} ${ampm}`;
+
+      options.push({ value, label });
+    }
+  }
+
+  return options;
+}
+
+function combineDateAndTime(date: string, time: string): string {
+  if (!date || !time) return '';
+  return `${date}T${time}`;
+}
 
 function startOfDay(date: Date) {
   const next = new Date(date);
@@ -189,6 +218,8 @@ function getEventHref(event: CalendarEvent) {
 
 export default function AdminCalendarPage() {
   const today = useMemo(() => startOfDay(new Date()), []);
+  const timeOptions = useMemo(() => generateTimeOptions(), []);
+
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
 
@@ -198,8 +229,42 @@ export default function AdminCalendarPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [eventFilter, setEventFilter] = useState<CalendarFilter>('all');
   const [vehicleFilter, setVehicleFilter] = useState<string>('all');
+
+  const [creatingBlock, setCreatingBlock] = useState(false);
+  const [blockScope, setBlockScope] = useState<BlockScope>('single');
+  const [fullDayBlock, setFullDayBlock] = useState(true);
+  const [blockVehicleId, setBlockVehicleId] = useState('');
+  const [blockStartDate, setBlockStartDate] = useState(() =>
+    toDateInputValue(new Date())
+  );
+  const [blockStartTime, setBlockStartTime] = useState('10:00');
+  const [blockEndDate, setBlockEndDate] = useState(() =>
+    toDateInputValue(new Date())
+  );
+  const [blockEndTime, setBlockEndTime] = useState('10:30');
+  const [blockReason, setBlockReason] = useState('');
+
+  const blockStart = useMemo(() => {
+    if (!blockStartDate) return '';
+    return fullDayBlock
+      ? `${blockStartDate}T00:00`
+      : combineDateAndTime(blockStartDate, blockStartTime);
+  }, [blockStartDate, blockStartTime, fullDayBlock]);
+
+  const blockEnd = useMemo(() => {
+    if (!blockEndDate) return '';
+    return fullDayBlock
+      ? `${blockEndDate}T23:59`
+      : combineDateAndTime(blockEndDate, blockEndTime);
+  }, [blockEndDate, blockEndTime, fullDayBlock]);
+
+  const invalidBlockRange = useMemo(() => {
+    if (!blockStart || !blockEnd) return false;
+    return new Date(blockStart) >= new Date(blockEnd);
+  }, [blockStart, blockEnd]);
 
   async function loadVehicles() {
     const res = await fetch('/api/vehicles', { cache: 'no-store' });
@@ -251,8 +316,114 @@ export default function AdminCalendarPage() {
   }
 
   useEffect(() => {
-    refreshData();
+    void refreshData();
   }, []);
+
+  useEffect(() => {
+    const dateValue = toDateInputValue(selectedDate);
+    setBlockStartDate(dateValue);
+    setBlockEndDate(dateValue);
+    setBlockStartTime('10:00');
+    setBlockEndTime('10:30');
+  }, [selectedDate]);
+
+  async function handleCreateBlock(e: React.FormEvent) {
+    e.preventDefault();
+    setCreatingBlock(true);
+    setError('');
+    setMessage('');
+
+    try {
+      if (!blockStart || !blockEnd) {
+        setError('Block start and block end are required.');
+        return;
+      }
+
+      if (new Date(blockStart) >= new Date(blockEnd)) {
+        setError('Block end must be later than block start.');
+        return;
+      }
+
+      let targetVehicles: Vehicle[] = [];
+
+      if (blockScope === 'all') {
+        targetVehicles = vehicles.filter((vehicle) => vehicle.isActive);
+
+        if (targetVehicles.length === 0) {
+          setError('No active vehicles are available to block.');
+          return;
+        }
+      } else {
+        if (!blockVehicleId) {
+          setError('Please select a vehicle.');
+          return;
+        }
+
+        const selectedVehicle = vehicles.find(
+          (vehicle) => vehicle.id === Number(blockVehicleId)
+        );
+
+        if (!selectedVehicle) {
+          setError('Selected vehicle was not found.');
+          return;
+        }
+
+        targetVehicles = [selectedVehicle];
+      }
+
+      const results = await Promise.all(
+        targetVehicles.map(async (vehicle) => {
+          const res = await fetch('/api/vehicle-blocks', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              vehicleId: vehicle.id,
+              start: blockStart,
+              end: blockEnd,
+              reason: blockReason,
+            }),
+          });
+
+          const rawText = await res.text();
+          const data = rawText ? JSON.parse(rawText) : {};
+
+          if (!res.ok) {
+            throw new Error(
+              data.error ||
+                `Failed to create block for ${vehicle.year} ${vehicle.make} ${vehicle.model}.`
+            );
+          }
+
+          return data;
+        })
+      );
+
+      if (results.length > 0) {
+        if (blockScope === 'all') {
+          setMessage(
+            `Created ${results.length} ${fullDayBlock ? 'full-day ' : ''}block${
+              results.length === 1 ? '' : 's'
+            } across all active vehicles.`
+          );
+        } else {
+          const vehicleLabel = getVehicleLabel(Number(blockVehicleId), vehicles);
+          setMessage(
+            `Block created for ${vehicleLabel}${fullDayBlock ? ' (full day)' : ''}.`
+          );
+        }
+      }
+
+      setBlockReason('');
+      await loadBlocks();
+    } catch (err) {
+      console.error('Failed to create block from calendar:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create block.');
+    } finally {
+      setCreatingBlock(false);
+    }
+  }
 
   const allEvents = useMemo<CalendarEvent[]>(() => {
     const bookingEvents: CalendarEvent[] = bookings.map((booking) => ({
@@ -365,7 +536,7 @@ export default function AdminCalendarPage() {
           <h2 className="text-2xl font-bold">Calendar</h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
             View bookings and manual vehicle blocks on a monthly calendar to spot
-            conflicts and gaps more quickly.
+            conflicts, gaps, and create new blockouts faster.
           </p>
         </div>
 
@@ -500,6 +671,12 @@ export default function AdminCalendarPage() {
           </span>
         </div>
 
+        {message ? (
+          <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
+            {message}
+          </div>
+        ) : null}
+
         {error ? (
           <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
             {error}
@@ -597,8 +774,176 @@ export default function AdminCalendarPage() {
         )}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+      <div className="grid gap-6 xl:grid-cols-3">
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 xl:col-span-1">
+          <h3 className="text-lg font-semibold">Create block from calendar</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Selected day: {formatDayLabel(selectedDate)}
+          </p>
+
+          <form onSubmit={handleCreateBlock} className="mt-4 space-y-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium">Block scope</label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setBlockScope('single')}
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                    blockScope === 'single'
+                      ? 'border-black bg-black text-white dark:border-white dark:bg-white dark:text-black'
+                      : 'border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900'
+                  }`}
+                >
+                  Specific vehicle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlockScope('all')}
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                    blockScope === 'all'
+                      ? 'border-black bg-black text-white dark:border-white dark:bg-white dark:text-black'
+                      : 'border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900'
+                  }`}
+                >
+                  All active vehicles
+                </button>
+              </div>
+            </div>
+
+            {blockScope === 'single' ? (
+              <div>
+                <label className="mb-2 block text-sm font-medium">Vehicle</label>
+                <select
+                  value={blockVehicleId}
+                  onChange={(e) => setBlockVehicleId(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  required
+                >
+                  <option value="">Select a vehicle</option>
+                  {vehicleOptions.map((vehicle) => (
+                    <option key={vehicle.id} value={String(vehicle.id)}>
+                      {vehicle.year} {vehicle.make} {vehicle.model}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+                This will create the block across all active vehicles.
+              </div>
+            )}
+
+            <div>
+              <label className="inline-flex items-center gap-3 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={fullDayBlock}
+                  onChange={(e) => setFullDayBlock(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Full-day block
+              </label>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium">Start date</label>
+                <input
+                  type="date"
+                  value={blockStartDate}
+                  onChange={(e) => setBlockStartDate(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  required
+                />
+              </div>
+
+              {!fullDayBlock ? (
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Start time</label>
+                  <select
+                    value={blockStartTime}
+                    onChange={(e) => setBlockStartTime(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                    required
+                  >
+                    {timeOptions.map((option) => (
+                      <option key={`start-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">End date</label>
+                <input
+                  type="date"
+                  value={blockEndDate}
+                  onChange={(e) => setBlockEndDate(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  required
+                />
+              </div>
+
+              {!fullDayBlock ? (
+                <div>
+                  <label className="mb-2 block text-sm font-medium">End time</label>
+                  <select
+                    value={blockEndTime}
+                    onChange={(e) => setBlockEndTime(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                    required
+                  >
+                    {timeOptions.map((option) => (
+                      <option key={`end-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Reason</label>
+              <input
+                type="text"
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
+                placeholder="Maintenance, owner hold, cleaning buffer, holiday, etc."
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+              />
+            </div>
+
+            {invalidBlockRange ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                Block end must be later than block start.
+              </div>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={creatingBlock || invalidBlockRange}
+              className="w-full rounded-xl border border-black bg-black px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white dark:bg-white dark:text-black"
+            >
+              {creatingBlock
+                ? 'Creating block...'
+                : `Create ${fullDayBlock ? 'Full-Day ' : ''}Block${
+                    blockScope === 'all' ? ' for All Vehicles' : ''
+                  }`}
+            </button>
+
+            <Link
+              href="/admin/blocks"
+              className="block text-center text-sm text-gray-500 underline-offset-4 hover:underline dark:text-gray-400"
+            >
+              Open full Vehicle Blocks page
+            </Link>
+          </form>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 xl:col-span-1">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">{formatDayLabel(selectedDate)}</h3>
@@ -677,7 +1022,7 @@ export default function AdminCalendarPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 xl:col-span-1">
           <h3 className="text-lg font-semibold">Upcoming events</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Next 10 bookings and blocks based on the current filters.
