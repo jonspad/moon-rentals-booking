@@ -33,13 +33,20 @@ function getVehicleDisplayName(vehicle: {
   }`;
 }
 
-function calculateBillableDays(start: Date, end: Date) {
-  const diffMs = end.getTime() - start.getTime();
-  const msPerDay = 1000 * 60 * 60 * 24;
+function calculateBillableDays(pickupAt: string, returnAt: string) {
+  const pickupDate = new Date(pickupAt);
+  const returnDate = new Date(returnAt);
 
-  if (diffMs <= 0) {
+  if (
+    Number.isNaN(pickupDate.getTime()) ||
+    Number.isNaN(returnDate.getTime()) ||
+    returnDate <= pickupDate
+  ) {
     return 0;
   }
+
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const diffMs = returnDate.getTime() - pickupDate.getTime();
 
   return Math.ceil(diffMs / msPerDay);
 }
@@ -90,7 +97,6 @@ export async function POST(req: NextRequest) {
         model: true,
         color: true,
         pricePerDay: true,
-        image: true,
       },
     });
 
@@ -105,7 +111,10 @@ export async function POST(req: NextRequest) {
       Number.isNaN(pickupDate.getTime()) ||
       Number.isNaN(returnDate.getTime())
     ) {
-      return NextResponse.json({ error: 'Invalid date format.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid date format.' },
+        { status: 400 }
+      );
     }
 
     if (returnDate <= pickupDate) {
@@ -175,10 +184,10 @@ export async function POST(req: NextRequest) {
     });
 
     const vehicleName = getVehicleDisplayName(vehicle);
-    const billableDays = calculateBillableDays(pickupDate, returnDate);
-    const ratePerDay = vehicle.pricePerDay;
-    const estimatedTotal = billableDays * ratePerDay;
     const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL?.trim();
+    const pricePerDay = vehicle.pricePerDay ?? 0;
+    const billableDays = calculateBillableDays(pickupAt, returnAt);
+    const estimatedTotal = billableDays * pricePerDay;
 
     await sendBookingReceivedEmail({
       to: email,
@@ -187,8 +196,7 @@ export async function POST(req: NextRequest) {
       pickupAt,
       returnAt,
       bookingId: booking.id,
-      vehicleImage: vehicle.image,
-      ratePerDay,
+      pricePerDay,
       billableDays,
       estimatedTotal,
     });
@@ -203,8 +211,7 @@ export async function POST(req: NextRequest) {
         vehicle: vehicleName,
         pickupAt,
         returnAt,
-        vehicleImage: vehicle.image,
-        ratePerDay,
+        pricePerDay,
         billableDays,
         estimatedTotal,
       });
@@ -223,6 +230,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
+
     const id = Number(body.id);
     const status = body.status;
 
@@ -270,7 +278,6 @@ export async function PATCH(req: NextRequest) {
           model: true,
           color: true,
           pricePerDay: true,
-          image: true,
         },
       });
 
@@ -278,18 +285,12 @@ export async function PATCH(req: NextRequest) {
         ? getVehicleDisplayName(vehicle)
         : `Vehicle ${updatedBooking.vehicleId}`;
 
-      const pickupDate = new Date(updatedBooking.pickupAt);
-      const returnDate = new Date(updatedBooking.returnAt);
-      const billableDays =
-        Number.isNaN(pickupDate.getTime()) || Number.isNaN(returnDate.getTime())
-          ? null
-          : calculateBillableDays(pickupDate, returnDate);
-
-      const ratePerDay = vehicle?.pricePerDay ?? null;
-      const estimatedTotal =
-        billableDays != null && ratePerDay != null
-          ? billableDays * ratePerDay
-          : null;
+      const pricePerDay = vehicle?.pricePerDay ?? 0;
+      const billableDays = calculateBillableDays(
+        updatedBooking.pickupAt,
+        updatedBooking.returnAt
+      );
+      const estimatedTotal = billableDays * pricePerDay;
 
       await sendBookingApprovedEmail({
         to: updatedBooking.email,
@@ -298,8 +299,7 @@ export async function PATCH(req: NextRequest) {
         pickupAt: updatedBooking.pickupAt,
         returnAt: updatedBooking.returnAt,
         bookingId: updatedBooking.id,
-        vehicleImage: vehicle?.image ?? null,
-        ratePerDay,
+        pricePerDay,
         billableDays,
         estimatedTotal,
       });
