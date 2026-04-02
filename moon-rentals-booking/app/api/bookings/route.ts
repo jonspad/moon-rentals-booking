@@ -33,6 +33,24 @@ function getVehicleDisplayName(vehicle: {
   }`;
 }
 
+function calculateBillableDays(pickupAt: string, returnAt: string) {
+  const pickupDate = new Date(pickupAt);
+  const returnDate = new Date(returnAt);
+
+  if (
+    Number.isNaN(pickupDate.getTime()) ||
+    Number.isNaN(returnDate.getTime()) ||
+    returnDate <= pickupDate
+  ) {
+    return 0;
+  }
+
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const diffMs = returnDate.getTime() - pickupDate.getTime();
+
+  return Math.ceil(diffMs / msPerDay);
+}
+
 export async function GET() {
   try {
     const bookings = await getBookings();
@@ -78,6 +96,7 @@ export async function POST(req: NextRequest) {
         make: true,
         model: true,
         color: true,
+        pricePerDay: true,
       },
     });
 
@@ -166,6 +185,9 @@ export async function POST(req: NextRequest) {
 
     const vehicleName = getVehicleDisplayName(vehicle);
     const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL?.trim();
+    const pricePerDay = vehicle.pricePerDay ?? 0;
+    const billableDays = calculateBillableDays(pickupAt, returnAt);
+    const estimatedTotal = billableDays * pricePerDay;
 
     await sendBookingReceivedEmail({
       to: email,
@@ -174,6 +196,9 @@ export async function POST(req: NextRequest) {
       pickupAt,
       returnAt,
       bookingId: booking.id,
+      pricePerDay,
+      billableDays,
+      estimatedTotal,
     });
 
     if (adminNotificationEmail) {
@@ -186,6 +211,9 @@ export async function POST(req: NextRequest) {
         vehicle: vehicleName,
         pickupAt,
         returnAt,
+        pricePerDay,
+        billableDays,
+        estimatedTotal,
       });
     }
 
@@ -249,12 +277,20 @@ export async function PATCH(req: NextRequest) {
           make: true,
           model: true,
           color: true,
+          pricePerDay: true,
         },
       });
 
       const vehicleName = vehicle
         ? getVehicleDisplayName(vehicle)
         : `Vehicle ${updatedBooking.vehicleId}`;
+
+      const pricePerDay = vehicle?.pricePerDay ?? 0;
+      const billableDays = calculateBillableDays(
+        updatedBooking.pickupAt,
+        updatedBooking.returnAt
+      );
+      const estimatedTotal = billableDays * pricePerDay;
 
       await sendBookingApprovedEmail({
         to: updatedBooking.email,
@@ -263,6 +299,9 @@ export async function PATCH(req: NextRequest) {
         pickupAt: updatedBooking.pickupAt,
         returnAt: updatedBooking.returnAt,
         bookingId: updatedBooking.id,
+        pricePerDay,
+        billableDays,
+        estimatedTotal,
       });
     }
 
