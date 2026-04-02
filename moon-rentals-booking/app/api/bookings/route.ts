@@ -7,6 +7,7 @@ import {
 } from '@/lib/bookingStore';
 import { getBlocks } from '@/lib/blockStore';
 import { prisma } from '@/lib/prisma';
+import { sendBookingReceivedEmail } from '@/lib/email';
 
 function isOverlapping(
   requestedStart: Date,
@@ -15,6 +16,17 @@ function isOverlapping(
   existingEnd: Date
 ) {
   return requestedStart < existingEnd && requestedEnd > existingStart;
+}
+
+function getVehicleDisplayName(vehicle: {
+  year: number;
+  make: string;
+  model: string;
+  color?: string | null;
+}) {
+  return `${vehicle.year} ${vehicle.make} ${vehicle.model}${
+    vehicle.color ? ` (${vehicle.color})` : ''
+  }`;
 }
 
 export async function GET() {
@@ -58,6 +70,10 @@ export async function POST(req: NextRequest) {
       },
       select: {
         id: true,
+        year: true,
+        make: true,
+        model: true,
+        color: true,
       },
     });
 
@@ -112,7 +128,7 @@ export async function POST(req: NextRequest) {
     const existingBookings = await getBookings();
     const conflictingBooking = existingBookings.find((booking) => {
       if (booking.vehicleId !== vehicleId) return false;
-      if (booking.status === 'cancelled') return false;
+      if (booking.status !== 'confirmed') return false;
 
       const bookingStart = new Date(booking.pickupAt);
       const bookingEnd = new Date(booking.returnAt);
@@ -142,6 +158,17 @@ export async function POST(req: NextRequest) {
       email,
       phone,
       status: 'pending',
+    });
+
+    const vehicleName = getVehicleDisplayName(vehicle);
+
+    await sendBookingReceivedEmail({
+      to: email,
+      name: fullName,
+      vehicle: vehicleName,
+      pickupAt,
+      returnAt,
+      bookingId: booking.id,
     });
 
     return NextResponse.json({ booking }, { status: 201 });
