@@ -39,6 +39,8 @@ type VehicleFormState = {
   isActive: boolean;
 };
 
+type InventoryStatusFilter = 'all' | 'active' | 'inactive';
+
 const initialForm: VehicleFormState = {
   groupId: '',
   slug: '',
@@ -65,6 +67,14 @@ function buildSlug(year: string, make: string, model: string) {
     .replace(/^-+|-+$/g, '');
 }
 
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 export default function AdminVehiclesPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,10 +86,14 @@ export default function AdminVehiclesPage() {
   const [message, setMessage] = useState('');
   const [form, setForm] = useState<VehicleFormState>(initialForm);
   const [slugEditedManually, setSlugEditedManually] = useState(false);
-
   const [groupMode, setGroupMode] = useState<'existing' | 'new'>('existing');
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [newGroupId, setNewGroupId] = useState('');
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<InventoryStatusFilter>('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [groupFilter, setGroupFilter] = useState('all');
 
   async function loadVehicles() {
     const res = await fetch('/api/admin/vehicles', { cache: 'no-store' });
@@ -118,23 +132,86 @@ export default function AdminVehiclesPage() {
     return Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b));
   }, [vehicles]);
 
-  const sortedVehicles = useMemo(() => {
-    return vehicles
-      .slice()
-      .sort(
-        (a, b) =>
-          Number(b.isActive) - Number(a.isActive) ||
-          b.year - a.year ||
-          a.make.localeCompare(b.make) ||
-          a.model.localeCompare(b.model)
-      );
+  const categories = useMemo(() => {
+    const values = vehicles
+      .map((vehicle) => vehicle.category?.trim())
+      .filter((value): value is string => Boolean(value));
+
+    return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
   }, [vehicles]);
+
+  const inventoryStats = useMemo(() => {
+    const active = vehicles.filter((vehicle) => vehicle.isActive).length;
+    const inactive = vehicles.length - active;
+    const avgRate =
+      vehicles.length > 0
+        ? Math.round(
+            vehicles.reduce((sum, vehicle) => sum + vehicle.pricePerDay, 0) /
+              vehicles.length
+          )
+        : 0;
+
+    return {
+      total: vehicles.length,
+      active,
+      inactive,
+      avgRate,
+    };
+  }, [vehicles]);
+
+  const sortedVehicles = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    const next = vehicles.filter((vehicle) => {
+      if (statusFilter === 'active' && !vehicle.isActive) return false;
+      if (statusFilter === 'inactive' && vehicle.isActive) return false;
+
+      if (categoryFilter !== 'all' && vehicle.category !== categoryFilter) {
+        return false;
+      }
+
+      if (groupFilter !== 'all' && vehicle.groupId !== groupFilter) {
+        return false;
+      }
+
+      if (!normalizedSearch) return true;
+
+      const haystack = [
+        vehicle.groupId,
+        vehicle.slug,
+        vehicle.vin ?? '',
+        vehicle.licensePlate ?? '',
+        String(vehicle.year),
+        vehicle.make,
+        vehicle.model,
+        vehicle.category,
+        vehicle.color,
+        vehicle.transmission,
+        vehicle.description,
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(normalizedSearch);
+    });
+
+    return next.sort(
+      (a, b) =>
+        Number(b.isActive) - Number(a.isActive) ||
+        b.year - a.year ||
+        a.make.localeCompare(b.make) ||
+        a.model.localeCompare(b.model)
+    );
+  }, [vehicles, search, statusFilter, categoryFilter, groupFilter]);
 
   function updateForm<K extends keyof VehicleFormState>(
     key: K,
     value: VehicleFormState[K]
   ) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
   }
 
   function resetForm() {
@@ -192,6 +269,7 @@ export default function AdminVehiclesPage() {
     if (slugEditedManually) return;
 
     const nextSlug = buildSlug(form.year, form.make, form.model);
+
     setForm((prev) => ({
       ...prev,
       slug: nextSlug,
@@ -259,10 +337,7 @@ export default function AdminVehiclesPage() {
       };
 
       const url =
-        editingId === null
-          ? '/api/admin/vehicles'
-          : `/api/admin/vehicles/${editingId}`;
-
+        editingId === null ? '/api/admin/vehicles' : `/api/admin/vehicles/${editingId}`;
       const method = editingId === null ? 'POST' : 'PATCH';
 
       const res = await fetch(url, {
@@ -373,452 +448,534 @@ export default function AdminVehiclesPage() {
 
   return (
     <section className="space-y-6">
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+      <div>
         <h2 className="text-2xl font-bold">Manage Vehicles</h2>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-          Add, edit, disable, or remove inventory directly from the admin panel.
+          Add inventory, edit details, and quickly search or filter the current fleet.
         </p>
+      </div>
 
-        {message ? (
-          <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900/50 dark:bg-green-950/30 dark:text-green-300">
-            {message}
-          </div>
-        ) : null}
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total vehicles</p>
+          <p className="mt-2 text-3xl font-bold">{inventoryStats.total}</p>
+        </div>
 
-        {error ? (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-            {error}
-          </div>
-        ) : null}
+        <div className="rounded-2xl border border-green-200 bg-green-50 p-4 shadow-sm dark:border-green-900 dark:bg-green-950/30">
+          <p className="text-sm text-green-700 dark:text-green-300">Active</p>
+          <p className="mt-2 text-3xl font-bold text-green-800 dark:text-green-200">
+            {inventoryStats.active}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-gray-300 bg-gray-50 p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          <p className="text-sm text-gray-600 dark:text-gray-300">Inactive</p>
+          <p className="mt-2 text-3xl font-bold">{inventoryStats.inactive}</p>
+        </div>
+
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm dark:border-blue-900 dark:bg-blue-950/30">
+          <p className="text-sm text-blue-700 dark:text-blue-300">Avg daily rate</p>
+          <p className="mt-2 text-3xl font-bold text-blue-800 dark:text-blue-200">
+            {formatMoney(inventoryStats.avgRate)}
+          </p>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold">
-              {editingId === null ? 'Add Vehicle' : `Edit Vehicle #${editingId}`}
-            </h3>
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-              Fill out the fields below and save your inventory changes.
-            </p>
-          </div>
+        <h3 className="text-lg font-semibold">
+          {editingId === null ? 'Add Vehicle' : `Edit Vehicle #${editingId}`}
+        </h3>
 
-          {editingId !== null ? (
-            <button
-              type="button"
-              onClick={resetForm}
-              className="rounded-xl border px-4 py-2 text-sm font-medium"
-            >
-              Cancel Edit
-            </button>
-          ) : null}
-        </div>
+        <form onSubmit={handleSubmit} className="mt-5 space-y-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium">Group mode</label>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setGroupMode('existing')}
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium ${
+                    groupMode === 'existing'
+                      ? 'border-black bg-black text-white dark:border-white dark:bg-white dark:text-black'
+                      : 'border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900'
+                  }`}
+                >
+                  Existing group
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupMode('new')}
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium ${
+                    groupMode === 'new'
+                      ? 'border-black bg-black text-white dark:border-white dark:bg-white dark:text-black'
+                      : 'border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900'
+                  }`}
+                >
+                  New group
+                </button>
+              </div>
+            </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="space-y-3">
-            <label className="block text-sm font-medium">Group ID</label>
+            <div>
+              <label className="mb-2 block text-sm font-medium">Group ID</label>
+              {groupMode === 'existing' ? (
+                <select
+                  value={selectedGroupId}
+                  onChange={(e) => {
+                    setSelectedGroupId(e.target.value);
+                    updateForm('groupId', e.target.value);
+                  }}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                >
+                  <option value="">Select a group</option>
+                  {existingGroupIds.map((groupId) => (
+                    <option key={groupId} value={groupId}>
+                      {groupId}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={newGroupId}
+                  onChange={(e) => {
+                    setNewGroupId(e.target.value);
+                    updateForm('groupId', e.target.value);
+                  }}
+                  placeholder="Enter new group ID"
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                />
+              )}
+            </div>
 
-            <select
-              value={groupMode === 'new' ? '__new__' : selectedGroupId}
-              onChange={(e) => {
-                const value = e.target.value;
-
-                if (value === '__new__') {
-                  setGroupMode('new');
-                  setSelectedGroupId('');
-                } else {
-                  setGroupMode('existing');
-                  setSelectedGroupId(value);
-                  setNewGroupId('');
-                }
-
-                updateForm('groupId', value === '__new__' ? '' : value);
-              }}
-              className="w-full rounded-xl border px-3 py-2"
-              required={groupMode === 'existing'}
-            >
-              <option value="">Select a group</option>
-              {existingGroupIds.map((groupId) => (
-                <option key={groupId} value={groupId}>
-                  {groupId}
-                </option>
-              ))}
-              <option value="__new__">+ Create new group</option>
-            </select>
-
-            {groupMode === 'new' ? (
+            <div>
+              <label className="mb-2 block text-sm font-medium">Year</label>
               <input
-                type="text"
-                value={newGroupId}
-                onChange={(e) => {
-                  setNewGroupId(e.target.value);
-                  updateForm('groupId', e.target.value);
-                }}
-                className="w-full rounded-xl border px-3 py-2"
-                placeholder="Enter new group ID"
+                value={form.year}
+                onChange={(e) => updateForm('year', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
                 required
               />
-            ) : null}
-          </div>
+            </div>
 
-          <label className="block text-sm font-medium">
-            Slug
-            <div className="mt-2 flex gap-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium">Make</label>
+              <input
+                value={form.make}
+                onChange={(e) => updateForm('make', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Model</label>
+              <input
+                value={form.model}
+                onChange={(e) => updateForm('model', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Slug</label>
               <input
                 value={form.slug}
                 onChange={(e) => {
                   setSlugEditedManually(true);
                   updateForm('slug', e.target.value);
                 }}
-                className="w-full rounded-xl border px-3 py-2"
-                placeholder="2024-tesla-cybertruck"
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
                 required
               />
-              <button
-                type="button"
-                onClick={() => {
-                  setSlugEditedManually(true);
-                  updateForm('slug', buildSlug(form.year, form.make, form.model));
-                }}
-                className="rounded-xl border px-3 py-2 text-xs font-medium"
-              >
-                Auto-generate slug
-              </button>
             </div>
-          </label>
 
-          <label className="block text-sm font-medium">
-            VIN
-            <input
-              value={form.vin}
-              onChange={(e) => updateForm('vin', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="Optional"
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            License Plate
-            <input
-              value={form.licensePlate}
-              onChange={(e) => updateForm('licensePlate', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="Optional"
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            Year
-            <input
-              value={form.year}
-              onChange={(e) => updateForm('year', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="2024"
-              required
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            Make
-            <input
-              value={form.make}
-              onChange={(e) => updateForm('make', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="Tesla"
-              required
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            Model
-            <input
-              value={form.model}
-              onChange={(e) => updateForm('model', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="Cybertruck"
-              required
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            Category
-            <input
-              value={form.category}
-              onChange={(e) => updateForm('category', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="Truck"
-              required
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            Color
-            <input
-              value={form.color}
-              onChange={(e) => updateForm('color', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="Silver"
-              required
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            Seats
-            <input
-              value={form.seats}
-              onChange={(e) => updateForm('seats', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="5"
-              required
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            Transmission
-            <input
-              value={form.transmission}
-              onChange={(e) => updateForm('transmission', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="Automatic"
-              required
-            />
-          </label>
-
-          <label className="block text-sm font-medium">
-            Price Per Day
-            <input
-              value={form.pricePerDay}
-              onChange={(e) => updateForm('pricePerDay', e.target.value)}
-              className="mt-2 w-full rounded-xl border px-3 py-2"
-              placeholder="199"
-              required
-            />
-          </label>
-
-          <div className="block text-sm font-medium md:col-span-2">
-            <span>Vehicle Image</span>
-
-            <div className="mt-2 flex flex-col gap-3">
+            <div>
+              <label className="mb-2 block text-sm font-medium">Category</label>
               <input
-                type="file"
-                accept="image/*"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  await handleImageUpload(file);
-                  e.currentTarget.value = '';
-                }}
-                className="w-full rounded-xl border px-3 py-2"
+                value={form.category}
+                onChange={(e) => updateForm('category', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                required
               />
+            </div>
 
+            <div>
+              <label className="mb-2 block text-sm font-medium">Color</label>
+              <input
+                value={form.color}
+                onChange={(e) => updateForm('color', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Seats</label>
+              <input
+                value={form.seats}
+                onChange={(e) => updateForm('seats', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Transmission</label>
+              <input
+                value={form.transmission}
+                onChange={(e) => updateForm('transmission', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Price / day</label>
+              <input
+                value={form.pricePerDay}
+                onChange={(e) => updateForm('pricePerDay', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">VIN</label>
+              <input
+                value={form.vin}
+                onChange={(e) => updateForm('vin', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">License plate</label>
+              <input
+                value={form.licensePlate}
+                onChange={(e) => updateForm('licensePlate', e.target.value)}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium">Image path</label>
               <input
                 value={form.image}
                 onChange={(e) => updateForm('image', e.target.value)}
-                className="w-full rounded-xl border px-3 py-2"
-                placeholder="/uploads/vehicles/example.jpg"
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
                 required
               />
-
-              <p className="text-xs text-gray-500">
-                Upload an image or paste an existing image path.
-                {uploadingImage ? ' Uploading...' : ''}
-              </p>
-
-              {form.image ? (
-                <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={form.image}
-                    alt="Vehicle preview"
-                    className="h-56 w-full object-cover"
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <label className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+                  <span>{uploadingImage ? 'Uploading...' : 'Upload image'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploadingImage}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        void handleImageUpload(file);
+                      }
+                      e.currentTarget.value = '';
+                    }}
                   />
-                </div>
-              ) : null}
+                </label>
+
+                {form.image ? (
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    Current image: {form.image}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium">Description</label>
+              <textarea
+                value={form.description}
+                onChange={(e) => updateForm('description', e.target.value)}
+                rows={4}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                required
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="inline-flex items-center gap-3 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={form.isActive}
+                  onChange={(e) => updateForm('isActive', e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Vehicle is active
+              </label>
             </div>
           </div>
 
-          <label className="block text-sm font-medium md:col-span-2">
-            Description
-            <textarea
-              value={form.description}
-              onChange={(e) => updateForm('description', e.target.value)}
-              className="mt-2 min-h-28 w-full rounded-xl border px-3 py-2"
-              placeholder="Describe the vehicle..."
-              required
-            />
-          </label>
-
-          <label className="flex items-center gap-3 text-sm md:col-span-2">
-            <input
-              type="checkbox"
-              checked={form.isActive}
-              onChange={(e) => updateForm('isActive', e.target.checked)}
-            />
-            <span className="font-medium">Vehicle is active</span>
-          </label>
-
-          <div className="md:col-span-2">
+          <div className="flex flex-wrap gap-3">
             <button
               type="submit"
-              disabled={saving || uploadingImage}
-              className="rounded-xl border px-5 py-2.5 text-sm font-medium disabled:opacity-50"
+              disabled={saving}
+              className="rounded-xl border border-black bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white dark:bg-white dark:text-black"
             >
               {saving
                 ? editingId === null
                   ? 'Creating...'
                   : 'Saving...'
                 : editingId === null
-                ? 'Add Vehicle'
+                ? 'Create Vehicle'
                 : 'Save Changes'}
+            </button>
+
+            <button
+              type="button"
+              onClick={resetForm}
+              className="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              Clear Form
             </button>
           </div>
         </form>
       </div>
 
-      <div className="space-y-4">
-        <div>
-          <h3 className="text-lg font-semibold">Inventory</h3>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-            Review every vehicle currently stored in the database.
-          </p>
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <div className="grid gap-4 lg:grid-cols-4">
+          <div className="lg:col-span-2">
+            <label className="mb-2 block text-sm font-medium">Search</label>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search make, model, group, VIN, plate, category..."
+              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">Status</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as InventoryStatusFilter)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+            >
+              <option value="all">All vehicles</option>
+              <option value="active">Active only</option>
+              <option value="inactive">Inactive only</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">Category</label>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+            >
+              <option value="all">All categories</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {loading ? (
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
-            Loading vehicles...
-          </div>
-        ) : sortedVehicles.length === 0 ? (
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
-            No vehicles found.
-          </div>
-        ) : (
-          sortedVehicles.map((vehicle) => (
-            <div
-              key={vehicle.id}
-              className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950"
+        <div className="mt-4 grid gap-4 lg:grid-cols-4">
+          <div>
+            <label className="mb-2 block text-sm font-medium">Group</label>
+            <select
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
             >
-              <div className="flex flex-col gap-5 lg:flex-row">
-                <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={vehicle.image}
-                    alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
-                    className="h-52 w-full object-cover"
-                  />
+              <option value="all">All groups</option>
+              {existingGroupIds.map((groupId) => (
+                <option key={groupId} value={groupId}>
+                  {groupId}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-end gap-3 lg:col-span-3">
+            <button
+              onClick={() => {
+                setSearch('');
+                setStatusFilter('all');
+                setCategoryFilter('all');
+                setGroupFilter('all');
+              }}
+              className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              Reset filters
+            </button>
+
+            <button
+              onClick={refreshVehicles}
+              className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              Refresh inventory
+            </button>
+
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Showing {sortedVehicles.length} of {vehicles.length} vehicles
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {message ? (
+        <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
+          {message}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+          {error}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm shadow-sm dark:border-gray-800 dark:bg-gray-950">
+          Loading vehicles...
+        </div>
+      ) : sortedVehicles.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-400">
+          No vehicles match the current filters.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {sortedVehicles.map((vehicle) => (
+            <article
+              key={vehicle.id}
+              className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+            >
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                <div className="flex flex-col gap-4 md:flex-row">
+                  {vehicle.image ? (
+                    <img
+                      src={vehicle.image}
+                      alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+                      className="h-36 w-full rounded-2xl object-cover md:w-56"
+                    />
+                  ) : (
+                    <div className="flex h-36 w-full items-center justify-center rounded-2xl border border-dashed border-gray-300 text-sm text-gray-500 md:w-56 dark:border-gray-700 dark:text-gray-400">
+                      No image
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="text-xl font-semibold">
+                        {vehicle.year} {vehicle.make} {vehicle.model}
+                      </h3>
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                          vehicle.isActive
+                            ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300'
+                            : 'border-gray-300 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300'
+                        }`}
+                      >
+                        {vehicle.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+
+                    <div className="grid gap-2 text-sm text-gray-700 dark:text-gray-300 md:grid-cols-2">
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          Group:
+                        </span>{' '}
+                        {vehicle.groupId || '—'}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          Slug:
+                        </span>{' '}
+                        {vehicle.slug}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          Category:
+                        </span>{' '}
+                        {vehicle.category}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          Color:
+                        </span>{' '}
+                        {vehicle.color}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          Seats:
+                        </span>{' '}
+                        {vehicle.seats}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          Transmission:
+                        </span>{' '}
+                        {vehicle.transmission}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          Price/day:
+                        </span>{' '}
+                        {formatMoney(vehicle.pricePerDay)}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          VIN:
+                        </span>{' '}
+                        {vehicle.vin || '—'}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-black dark:text-white">
+                          Plate:
+                        </span>{' '}
+                        {vehicle.licensePlate || '—'}
+                      </p>
+                    </div>
+
+                    <p className="max-w-3xl text-sm text-gray-600 dark:text-gray-300">
+                      {vehicle.description}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex-1 space-y-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h4 className="text-xl font-semibold">
-                      {vehicle.year} {vehicle.make} {vehicle.model}
-                    </h4>
+                <div className="flex w-full flex-col gap-2 xl:w-56">
+                  <button
+                    onClick={() => fillForm(vehicle)}
+                    className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                  >
+                    Edit Vehicle
+                  </button>
 
-                    <span
-                      className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                        vehicle.isActive
-                          ? 'border-green-200 bg-green-50 text-green-700'
-                          : 'border-gray-300 bg-gray-100 text-gray-700'
-                      }`}
-                    >
-                      {vehicle.isActive ? 'Active' : 'Inactive'}
-                    </span>
+                  <button
+                    onClick={() => toggleVehicleActive(vehicle)}
+                    className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                  >
+                    {vehicle.isActive ? 'Disable Vehicle' : 'Enable Vehicle'}
+                  </button>
 
-                    <span className="text-sm text-gray-500">ID #{vehicle.id}</span>
-                  </div>
-
-                  <div className="grid gap-2 text-sm text-gray-600 dark:text-gray-300 md:grid-cols-2">
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Group:
-                      </span>{' '}
-                      {vehicle.groupId}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Slug:
-                      </span>{' '}
-                      {vehicle.slug}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        VIN:
-                      </span>{' '}
-                      {vehicle.vin || '—'}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        License Plate:
-                      </span>{' '}
-                      {vehicle.licensePlate || '—'}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Category:
-                      </span>{' '}
-                      {vehicle.category}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Color:
-                      </span>{' '}
-                      {vehicle.color}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Seats:
-                      </span>{' '}
-                      {vehicle.seats}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Transmission:
-                      </span>{' '}
-                      {vehicle.transmission}
-                    </p>
-                    <p>
-                      <span className="font-medium text-black dark:text-white">
-                        Price/Day:
-                      </span>{' '}
-                      ${vehicle.pricePerDay}
-                    </p>
-                  </div>
-
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    {vehicle.description}
-                  </p>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fillForm(vehicle)}
-                      className="rounded-xl border px-4 py-2 text-sm font-medium"
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => toggleVehicleActive(vehicle)}
-                      className="rounded-xl border px-4 py-2 text-sm font-medium"
-                    >
-                      {vehicle.isActive ? 'Disable' : 'Enable'}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(vehicle)}
-                      disabled={deletingId === vehicle.id}
-                      className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
-                    >
-                      {deletingId === vehicle.id ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => handleDelete(vehicle)}
+                    disabled={deletingId === vehicle.id}
+                    className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/30"
+                  >
+                    {deletingId === vehicle.id ? 'Deleting...' : 'Delete Vehicle'}
+                  </button>
                 </div>
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
