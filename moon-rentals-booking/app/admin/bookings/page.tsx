@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 type Booking = {
   id: number;
@@ -73,6 +74,10 @@ function formatDateOnly(value: string) {
 }
 
 export default function AdminBookingsPage() {
+  const searchParams = useSearchParams();
+  const highlightedBookingId = Number(searchParams.get('bookingId')) || null;
+  const bookingRefs = useRef<Record<number, HTMLElement | null>>({});
+
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [error, setError] = useState('');
@@ -152,6 +157,33 @@ export default function AdminBookingsPage() {
   useEffect(() => {
     refreshData();
   }, []);
+
+  useEffect(() => {
+    if (!highlightedBookingId) return;
+    if (loading) return;
+
+    const bookingExists = bookings.some((booking) => booking.id === highlightedBookingId);
+
+    if (!bookingExists) {
+      setError(`Booking #${highlightedBookingId} was not found.`);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const element = bookingRefs.current[highlightedBookingId];
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+
+    return () => window.clearTimeout(timer);
+  }, [highlightedBookingId, bookings, loading]);
+
+  useEffect(() => {
+    if (highlightedBookingId) {
+      setOpenComposerId(null);
+    }
+  }, [highlightedBookingId]);
 
   async function updateStatus(
     bookingId: number,
@@ -365,6 +397,12 @@ export default function AdminBookingsPage() {
         </p>
       </div>
 
+      {highlightedBookingId ? (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+          Focused from calendar: booking #{highlightedBookingId}
+        </div>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
@@ -486,11 +524,20 @@ export default function AdminBookingsPage() {
           {filteredBookings.map((booking) => {
             const vehicleLabel = getVehicleLabel(booking.vehicleId);
             const composerOpen = openComposerId === booking.id;
+            const isHighlighted = highlightedBookingId === booking.id;
 
             return (
               <article
                 key={booking.id}
-                className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+                ref={(element) => {
+                  bookingRefs.current[booking.id] = element;
+                }}
+                className={[
+                  'rounded-2xl border bg-white p-5 shadow-sm dark:bg-gray-950',
+                  isHighlighted
+                    ? 'border-blue-400 ring-2 ring-blue-200 dark:border-blue-500 dark:ring-blue-900/50'
+                    : 'border-gray-200 dark:border-gray-800',
+                ].join(' ')}
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-3">
@@ -503,6 +550,11 @@ export default function AdminBookingsPage() {
                       >
                         {booking.status}
                       </span>
+                      {isHighlighted ? (
+                        <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+                          Selected from calendar
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="grid gap-3 text-sm text-gray-700 dark:text-gray-300 md:grid-cols-2">

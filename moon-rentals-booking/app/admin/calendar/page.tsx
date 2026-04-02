@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 type Booking = {
@@ -176,6 +177,14 @@ function getEventPillClasses(event: CalendarEvent) {
   }
 
   return 'border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300';
+}
+
+function getEventHref(event: CalendarEvent) {
+  if (event.type === 'booking') {
+    return `/admin/bookings?bookingId=${event.sourceId}`;
+  }
+
+  return `/admin/blocks?blockId=${event.sourceId}`;
 }
 
 export default function AdminCalendarPage() {
@@ -523,12 +532,11 @@ export default function AdminCalendarPage() {
                 const hiddenCount = Math.max(dayEvents.length - visibleEvents.length, 0);
 
                 return (
-                  <button
+                  <div
                     key={day.toISOString()}
-                    type="button"
                     onClick={() => setSelectedDate(startOfDay(day))}
                     className={[
-                      'min-h-36 border-b border-r border-gray-200 p-2 text-left align-top transition dark:border-gray-800',
+                      'min-h-36 cursor-pointer border-b border-r border-gray-200 p-2 text-left align-top transition dark:border-gray-800',
                       isSelected
                         ? 'bg-blue-50 dark:bg-blue-950/20'
                         : 'bg-white hover:bg-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900',
@@ -558,15 +566,21 @@ export default function AdminCalendarPage() {
 
                     <div className="space-y-1">
                       {visibleEvents.map((event) => (
-                        <div
+                        <Link
                           key={`${event.id}-${day.toISOString()}`}
-                          className={`truncate rounded-lg border px-2 py-1 text-[11px] font-medium ${getEventPillClasses(
+                          href={getEventHref(event)}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`block truncate rounded-lg border px-2 py-1 text-[11px] font-medium hover:opacity-90 ${getEventPillClasses(
                             event
                           )}`}
+                          title={`${event.type === 'block' ? 'Block' : event.status} • ${getVehicleLabel(
+                            event.vehicleId,
+                            vehicles
+                          )}`}
                         >
-                          {event.type === 'block' ? 'Block' : event.status}{' '}
-                          • {getVehicleLabel(event.vehicleId, vehicles)}
-                        </div>
+                          {event.type === 'block' ? 'Block' : event.status} •{' '}
+                          {getVehicleLabel(event.vehicleId, vehicles)}
+                        </Link>
                       ))}
 
                       {hiddenCount > 0 ? (
@@ -575,7 +589,7 @@ export default function AdminCalendarPage() {
                         </div>
                       ) : null}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -650,16 +664,12 @@ export default function AdminCalendarPage() {
                   </div>
 
                   <div className="mt-4">
-                    <a
-                      href={
-                        event.type === 'booking'
-                          ? '/admin/bookings'
-                          : '/admin/blocks'
-                      }
+                    <Link
+                      href={getEventHref(event)}
                       className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
                     >
-                      Open {event.type === 'booking' ? 'Bookings' : 'Vehicle Blocks'}
-                    </a>
+                      Open {event.type === 'booking' ? `Booking #${event.sourceId}` : 'Block'}
+                    </Link>
                   </div>
                 </article>
               ))
@@ -703,6 +713,15 @@ export default function AdminCalendarPage() {
                   <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
                     {formatDateTime(event.start)} → {formatDateTime(event.end)}
                   </p>
+
+                  <div className="mt-4">
+                    <Link
+                      href={getEventHref(event)}
+                      className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                    >
+                      Open {event.type === 'booking' ? `Booking #${event.sourceId}` : 'Block'}
+                    </Link>
+                  </div>
                 </article>
               ))
             )}
