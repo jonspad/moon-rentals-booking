@@ -7,7 +7,11 @@ import {
 } from '@/lib/bookingStore';
 import { getBlocks } from '@/lib/blockStore';
 import { prisma } from '@/lib/prisma';
-import { sendBookingReceivedEmail } from '@/lib/email';
+import {
+  sendAdminNewBookingEmail,
+  sendBookingApprovedEmail,
+  sendBookingReceivedEmail,
+} from '@/lib/email';
 
 function isOverlapping(
   requestedStart: Date,
@@ -161,6 +165,7 @@ export async function POST(req: NextRequest) {
     });
 
     const vehicleName = getVehicleDisplayName(vehicle);
+    const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL?.trim();
 
     await sendBookingReceivedEmail({
       to: email,
@@ -170,6 +175,19 @@ export async function POST(req: NextRequest) {
       returnAt,
       bookingId: booking.id,
     });
+
+    if (adminNotificationEmail) {
+      await sendAdminNewBookingEmail({
+        to: adminNotificationEmail,
+        bookingId: booking.id,
+        customerName: fullName,
+        customerEmail: email,
+        customerPhone: phone,
+        vehicle: vehicleName,
+        pickupAt,
+        returnAt,
+      });
+    }
 
     return NextResponse.json({ booking }, { status: 201 });
   } catch (error) {
@@ -202,6 +220,16 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    const existingBookings = await getBookings();
+    const currentBooking = existingBookings.find((booking) => booking.id === id);
+
+    if (!currentBooking) {
+      return NextResponse.json(
+        { error: 'Booking not found.' },
+        { status: 404 }
+      );
+    }
+
     const updatedBooking = await updateBookingStatus(id, status);
 
     if (!updatedBooking) {
@@ -209,6 +237,33 @@ export async function PATCH(req: NextRequest) {
         { error: 'Booking not found.' },
         { status: 404 }
       );
+    }
+
+    if (status === 'confirmed' && currentBooking.status !== 'confirmed') {
+      const vehicle = await prisma.vehicle.findFirst({
+        where: {
+          id: updatedBooking.vehicleId,
+        },
+        select: {
+          year: true,
+          make: true,
+          model: true,
+          color: true,
+        },
+      });
+
+      const vehicleName = vehicle
+        ? getVehicleDisplayName(vehicle)
+        : `Vehicle ${updatedBooking.vehicleId}`;
+
+      await sendBookingApprovedEmail({
+        to: updatedBooking.email,
+        name: updatedBooking.fullName,
+        vehicle: vehicleName,
+        pickupAt: updatedBooking.pickupAt,
+        returnAt: updatedBooking.returnAt,
+        bookingId: updatedBooking.id,
+      });
     }
 
     return NextResponse.json({ booking: updatedBooking });
