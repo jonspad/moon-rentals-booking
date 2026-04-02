@@ -9,7 +9,74 @@ function formatDateTime(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Invalid date';
 
-  return date.toLocaleString();
+  return date.toLocaleString([], {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function getDurationMs(start: string | null, end: string | null) {
+  if (!start || !end) return 0;
+
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return 0;
+  }
+
+  const diff = endDate.getTime() - startDate.getTime();
+  return diff > 0 ? diff : 0;
+}
+
+function getBillableDays(start: string | null, end: string | null) {
+  const durationMs = getDurationMs(start, end);
+
+  if (durationMs <= 0) return 0;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.ceil(durationMs / dayMs);
+}
+
+function formatRentalLength(start: string | null, end: string | null) {
+  const durationMs = getDurationMs(start, end);
+
+  if (durationMs <= 0) return '—';
+
+  const totalMinutes = Math.floor(durationMs / (1000 * 60));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  const parts: string[] = [];
+
+  if (days > 0) {
+    parts.push(`${days} day${days === 1 ? '' : 's'}`);
+  }
+
+  if (hours > 0) {
+    parts.push(`${hours} hour${hours === 1 ? '' : 's'}`);
+  }
+
+  if (minutes > 0) {
+    parts.push(`${minutes} minute${minutes === 1 ? '' : 's'}`);
+  }
+
+  return parts.join(', ');
+}
+
+function formatCurrency(value: number | null) {
+  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
+    return '—';
+  }
+
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(value);
 }
 
 export default function BookingConfirmationPage() {
@@ -20,10 +87,19 @@ export default function BookingConfirmationPage() {
   const vehicle = searchParams.get('vehicle');
   const pickupAt = searchParams.get('pickupAt');
   const returnAt = searchParams.get('returnAt');
+  const pricePerDayParam = searchParams.get('pricePerDay');
+
+  const pricePerDay = pricePerDayParam ? Number(pricePerDayParam) : null;
+  const billableDays = getBillableDays(pickupAt, returnAt);
+  const rentalLength = formatRentalLength(pickupAt, returnAt);
+  const estimatedTotal =
+    typeof pricePerDay === 'number' && billableDays > 0
+      ? pricePerDay * billableDays
+      : null;
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-neutral-50 to-neutral-100 px-6 py-12 text-neutral-900">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-4xl">
         <div className="mb-6">
           <Link
             href="/vehicles"
@@ -45,10 +121,10 @@ export default function BookingConfirmationPage() {
                   Reservation Submitted
                 </p>
                 <h1 className="mt-1 text-3xl font-bold tracking-tight">
-                  Booking Confirmed
+                  Booking Request Received
                 </h1>
                 <p className="mt-2 text-sm text-neutral-600">
-                  Your request has been successfully recorded for Moon Rentals.
+                  Your request has been recorded and is now pending admin approval.
                 </p>
               </div>
             </div>
@@ -102,11 +178,55 @@ export default function BookingConfirmationPage() {
               </div>
             </div>
 
-            <div className="mt-8 rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
+            <div className="mt-6 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-neutral-900">
+                Pricing Summary
+              </h2>
+
+              <div className="mt-4 space-y-3 text-sm text-neutral-700">
+                <div className="flex items-center justify-between gap-4">
+                  <span>Rental Length</span>
+                  <span className="font-medium text-neutral-900">{rentalLength}</span>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <span>Billable Days</span>
+                  <span className="font-medium text-neutral-900">
+                    {billableDays > 0 ? billableDays : '—'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <span>Daily Rate</span>
+                  <span className="font-medium text-neutral-900">
+                    {formatCurrency(pricePerDay)}
+                  </span>
+                </div>
+
+                <div className="border-t border-neutral-200 pt-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-base font-semibold text-neutral-900">
+                      Estimated Total
+                    </span>
+                    <span className="text-2xl font-bold text-neutral-900">
+                      {formatCurrency(estimatedTotal)}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-neutral-500">
+                  Pricing shown as an estimate using full-day billing rounded up
+                  to the next day.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
               <h2 className="text-lg font-semibold">What happens next?</h2>
               <p className="mt-2 text-sm leading-6 text-neutral-600">
-                Please keep your booking ID for reference. You can continue browsing
-                the fleet or start another reservation below.
+                Your booking request is currently pending approval. Please keep
+                your booking ID for reference. Our team can review the request,
+                confirm availability, and follow up with next steps.
               </p>
             </div>
 

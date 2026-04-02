@@ -379,6 +379,10 @@ export default function BookingPage() {
           vehicle: vehicleName,
           pickupAt,
           returnAt,
+          pricePerDay:
+              selectedVehicle?.pricePerDay != null
+                  ? String(selectedVehicle.pricePerDay)
+                  : '',
         });
 
         router.push(`/booking-confirmation?${params.toString()}`);
