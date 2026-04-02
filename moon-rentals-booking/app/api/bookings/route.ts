@@ -168,13 +168,45 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const normalizedName = fullName.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPhone = phone.trim();
+
+    let customer = await prisma.customer.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (customer) {
+      const shouldUpdate =
+        customer.fullName !== normalizedName || customer.phone !== normalizedPhone;
+
+      if (shouldUpdate) {
+        customer = await prisma.customer.update({
+          where: { id: customer.id },
+          data: {
+            fullName: normalizedName,
+            phone: normalizedPhone,
+          },
+        });
+      }
+    } else {
+      customer = await prisma.customer.create({
+        data: {
+          fullName: normalizedName,
+          email: normalizedEmail,
+          phone: normalizedPhone,
+        },
+      });
+    }
+
     const booking = await addBooking({
       vehicleId,
+      customerId: customer.id,
       pickupAt,
       returnAt,
-      fullName,
-      email,
-      phone,
+      fullName: normalizedName,
+      email: normalizedEmail,
+      phone: normalizedPhone,
       status: 'pending',
     });
 
@@ -185,8 +217,8 @@ export async function POST(req: NextRequest) {
     const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL?.trim();
 
     await sendBookingReceivedEmail({
-      to: email,
-      name: fullName,
+      to: normalizedEmail,
+      name: normalizedName,
       vehicle: vehicleName,
       pickupAt,
       returnAt,
@@ -201,9 +233,9 @@ export async function POST(req: NextRequest) {
       await sendAdminNewBookingEmail({
         to: adminNotificationEmail,
         bookingId: booking.id,
-        customerName: fullName,
-        customerEmail: email,
-        customerPhone: phone,
+        customerName: normalizedName,
+        customerEmail: normalizedEmail,
+        customerPhone: normalizedPhone,
         vehicle: vehicleName,
         pickupAt,
         returnAt,

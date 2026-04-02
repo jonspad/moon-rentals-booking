@@ -1,2 +1,1 @@
--- AlterTable
-ALTER TABLE "Vehicle" ADD COLUMN "licensePlate" TEXT;
+-- No-op migration.

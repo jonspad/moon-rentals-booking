@@ -5,6 +5,7 @@ export type BookingStatus = 'pending' | 'confirmed' | 'cancelled';
 export type Booking = {
   id: number;
   vehicleId: number;
+  customerId: number;
   pickupAt: string;
   returnAt: string;
   fullName: string;
@@ -21,6 +22,7 @@ export type Booking = {
 function mapBooking(booking: {
   id: number;
   vehicleId: number;
+  customerId: number;
   pickupAt: Date;
   returnAt: Date;
   fullName: string;
@@ -36,6 +38,7 @@ function mapBooking(booking: {
   return {
     id: booking.id,
     vehicleId: booking.vehicleId,
+    customerId: booking.customerId,
     pickupAt: booking.pickupAt.toISOString(),
     returnAt: booking.returnAt.toISOString(),
     fullName: booking.fullName,
@@ -79,6 +82,7 @@ export async function addBooking(
   const created = await prisma.booking.create({
     data: {
       vehicleId: booking.vehicleId,
+      customerId: booking.customerId,
       pickupAt: new Date(booking.pickupAt),
       returnAt: new Date(booking.returnAt),
       fullName: booking.fullName,
