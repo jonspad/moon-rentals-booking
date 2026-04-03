@@ -97,7 +97,7 @@ export default function AdminVehiclesPage() {
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [newGroupId, setNewGroupId] = useState('');
   const [showAllVehicles, setShowAllVehicles] = useState(!focusedVehicleId);
-  const [showForm, setShowForm] = useState(!focusedVehicleId);
+  const [showForm, setShowForm] = useState(false);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<InventoryStatusFilter>('all');
@@ -135,8 +135,11 @@ export default function AdminVehiclesPage() {
 
   useEffect(() => {
     setShowAllVehicles(!focusedVehicleId);
-    setShowForm(!focusedVehicleId);
-  }, [focusedVehicleId]);
+
+  if (focusedVehicleId) {
+    setShowForm(false);
+  }
+}, [focusedVehicleId]);
 
   const existingGroupIds = useMemo(() => {
     const ids = vehicles

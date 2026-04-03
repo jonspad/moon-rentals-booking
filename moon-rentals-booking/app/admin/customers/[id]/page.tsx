@@ -136,8 +136,22 @@ export default async function CustomerDetailPage({
 
                   return (
                     <tr key={booking.id}>
-                      <td className="px-4 py-4 font-medium">#{booking.id}</td>
-                      <td className="px-4 py-4">{vehicleName}</td>
+                      <td className="px-4 py-4 font-medium">
+                        <Link
+                          href={`/admin/bookings?bookingId=${booking.id}`}
+                          className="text-blue-600 transition hover:underline dark:text-blue-400"
+                        >
+                          #{booking.id}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-4">
+                        <Link
+                          href={`/admin/vehicles?vehicleId=${booking.vehicleId}`}
+                          className="text-blue-600 transition hover:underline dark:text-blue-400"
+                        >
+                          {vehicleName}
+                        </Link>
+                      </td>
                       <td className="px-4 py-4">
                         {new Date(booking.pickupAt).toLocaleString()}
                       </td>

@@ -89,6 +89,7 @@ export default function AdminBlocksPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -171,6 +172,23 @@ export default function AdminBlocksPage() {
     void refreshData();
   }, []);
 
+  function resetForm() {
+    setVehicleId('');
+    setStartDate('');
+    setStartTime('10:00');
+    setEndDate('');
+    setEndTime('10:30');
+    setReason('');
+  }
+
+  function openCreateForm() {
+    resetForm();
+    setError('');
+    setMessage('');
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   async function handleSubmit() {
     setLoading(true);
     setError('');
@@ -209,12 +227,8 @@ export default function AdminBlocksPage() {
       }
 
       setMessage('Block created successfully.');
-      setVehicleId('');
-      setStartDate('');
-      setStartTime('10:00');
-      setEndDate('');
-      setEndTime('10:30');
-      setReason('');
+      resetForm();
+      setShowForm(false);
       await loadBlocks();
     } catch (err) {
       console.error('Create block error:', err);
@@ -362,124 +376,180 @@ export default function AdminBlocksPage() {
       </div>
 
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handleSubmit();
-          }}
-          className="grid gap-4 md:grid-cols-2"
-        >
-          <div className="md:col-span-2">
-            <label className="mb-2 block text-sm font-medium">Vehicle</label>
-            <select
-              value={vehicleId}
-              onChange={(e) => setVehicleId(e.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              required
-            >
-              <option value="">Select a vehicle</option>
-              {vehicles.map((vehicle: Vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  {vehicle.year} {vehicle.make} {vehicle.model}
-                </option>
-              ))}
-            </select>
-          </div>
-
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <label className="mb-2 block text-sm font-medium">Block Start Date</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              required
-            />
+            <h3 className="text-lg font-semibold">Block tools</h3>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              Create a new manual block only when you need it.
+            </p>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium">Block Start Time</label>
-            <select
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              required
-            >
-              {timeOptions.map((option: TimeOption) => (
-                <option key={`start-${option.value}`} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">Block End Date</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">Block End Time</label>
-            <select
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              required
-            >
-              {timeOptions.map((option: TimeOption) => (
-                <option key={`end-${option.value}`} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="mb-2 block text-sm font-medium">Reason</label>
-            <input
-              type="text"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              placeholder="Maintenance, Turo booking, owner hold, etc."
-            />
-          </div>
-
-          {invalidDateRange ? (
-            <div className="md:col-span-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-              Block end must be later than block start.
-            </div>
-          ) : null}
-
-          {message ? (
-            <div className="md:col-span-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
-              {message}
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className="md:col-span-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-              {error}
-            </div>
-          ) : null}
-
-          <div className="md:col-span-2">
+          <div className="flex flex-wrap gap-2">
             <button
-              type="submit"
-              disabled={loading || invalidDateRange}
-              className="rounded-xl border border-black bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white dark:bg-white dark:text-black"
+              type="button"
+              onClick={openCreateForm}
+              className="rounded-xl border border-black bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 dark:border-white dark:bg-white dark:text-black"
             >
-              {loading ? 'Saving...' : 'Add Block'}
+              Add block
             </button>
+
+            {showForm ? (
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setShowForm(false);
+                }}
+                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+              >
+                Close form
+              </button>
+            ) : null}
           </div>
-        </form>
+        </div>
+
+        {showForm ? (
+          <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-900/40">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSubmit();
+              }}
+              className="grid gap-4 md:grid-cols-2"
+            >
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-medium">Vehicle</label>
+                <select
+                  value={vehicleId}
+                  onChange={(e) => setVehicleId(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  required
+                >
+                  <option value="">Select a vehicle</option>
+                  {vehicles.map((vehicle: Vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>
+                      {vehicle.year} {vehicle.make} {vehicle.model}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Block Start Date
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Block Start Time
+                </label>
+                <select
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  required
+                >
+                  {timeOptions.map((option: TimeOption) => (
+                    <option key={`start-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Block End Date
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Block End Time
+                </label>
+                <select
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  required
+                >
+                  {timeOptions.map((option: TimeOption) => (
+                    <option key={`end-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-medium">Reason</label>
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-black dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  placeholder="Maintenance, Turo booking, owner hold, etc."
+                />
+              </div>
+
+              {invalidDateRange ? (
+                <div className="md:col-span-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                  Block end must be later than block start.
+                </div>
+              ) : null}
+
+              {message ? (
+                <div className="md:col-span-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
+                  {message}
+                </div>
+              ) : null}
+
+              {error ? (
+                <div className="md:col-span-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                  {error}
+                </div>
+              ) : null}
+
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  disabled={loading || invalidDateRange}
+                  className="rounded-xl border border-black bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white dark:bg-white dark:text-black"
+                >
+                  {loading ? 'Saving...' : 'Add Block'}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
       </div>
+
+      {message && !showForm ? (
+        <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
+          {message}
+        </div>
+      ) : null}
+
+      {error && !showForm ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+          {error}
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

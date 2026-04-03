@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 
 type Booking = {
   id: number;
+  customerId?: number | null;
   vehicleId: number;
   pickupAt: string;
   returnAt: string;
@@ -582,7 +583,16 @@ export default function AdminBookingsPage() {
                         <span className="font-semibold text-black dark:text-white">
                           Customer:
                         </span>{' '}
-                        {booking.fullName}
+                        {booking.customerId ? (
+                          <Link
+                            href={`/admin/customers/${booking.customerId}`}
+                            className="text-blue-600 transition hover:underline dark:text-blue-400"
+                          >
+                            {booking.fullName}
+                          </Link>
+                        ) : (
+                          <span>{booking.fullName}</span>
+                        )}
                       </p>
                       <p>
                         <span className="font-semibold text-black dark:text-white">
