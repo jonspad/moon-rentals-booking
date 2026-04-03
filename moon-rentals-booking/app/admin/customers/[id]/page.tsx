@@ -5,9 +5,14 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
-import { addBooking, getBookings, recordBookingMessageLog } from '@/lib/bookingStore';
+import { recordAdminAction } from '@/lib/adminAudit';
+import {
+  addBooking,
+  getBookings,
+  recordBookingMessageLog,
+} from '@/lib/bookingStore';
 import { getBlocks } from '@/lib/blockStore';
-import { sendBookingReceivedEmail } from '@/lib/email';
+import { sendBookingApprovedEmail, sendBookingReceivedEmail } from '@/lib/email';
 import CustomerNotesForm from './CustomerNotesForm';
 import CustomerProfileForm from './CustomerProfileForm';
 
@@ -107,6 +112,29 @@ function buildReceivedLogMessage(input: {
       ? `Estimated Total: $${input.estimatedTotal}`
       : '',
     `We’ll review the request and follow up as soon as possible.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildApprovedLogMessage(input: {
+  vehicle: string;
+  pickupAt: string;
+  returnAt: string;
+  bookingId: number;
+  ratePerDay?: number | null;
+  billableDays?: number | null;
+  estimatedTotal?: number | null;
+}) {
+  return [
+    `Your booking for ${input.vehicle} has been confirmed.`,
+    `Booking ID: #${input.bookingId}`,
+    `Pickup: ${input.pickupAt}`,
+    `Return: ${input.returnAt}`,
+    input.ratePerDay != null ? `Rate: $${input.ratePerDay}/day` : '',
+    input.billableDays != null ? `Billable Days: ${input.billableDays}` : '',
+    input.estimatedTotal != null ? `Total: $${input.estimatedTotal}` : '',
+    `We look forward to serving you. If you have any questions, feel free to reach out.`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -331,17 +359,10 @@ async function createManualBooking(formData: FormData) {
   const vehicleId = Number(formData.get('vehicleId'));
   const pickupAtRaw = String(formData.get('pickupAt') || '').trim();
   const returnAtRaw = String(formData.get('returnAt') || '').trim();
+  const autoConfirm = String(formData.get('autoConfirm') || '').trim() === 'yes';
 
-  if (!Number.isInteger(customerId) || customerId <= 0) {
-    throw new Error('Valid customer is required.');
-  }
-
-  if (!Number.isInteger(vehicleId) || vehicleId <= 0) {
-    throw new Error('Valid vehicle is required.');
-  }
-
-  if (!pickupAtRaw || !returnAtRaw) {
-    throw new Error('Pickup and return dates are required.');
+  if (!customerId || !vehicleId || !pickupAtRaw || !returnAtRaw) {
+    throw new Error('Customer, vehicle, pickup, and return dates are required.');
   }
 
   const customer = await prisma.customer.findUnique({
@@ -385,7 +406,7 @@ async function createManualBooking(formData: FormData) {
     Number.isNaN(pickupDate.getTime()) ||
     Number.isNaN(returnDate.getTime())
   ) {
-    throw new Error('Invalid date format.');
+    throw new Error('Pickup and return dates must be valid.');
   }
 
   if (returnDate <= pickupDate) {
@@ -437,6 +458,9 @@ async function createManualBooking(formData: FormData) {
 
   const pickupAt = pickupDate.toISOString();
   const returnAt = returnDate.toISOString();
+  const billableDays = calculateBillableDays(pickupDate, returnDate);
+  const ratePerDay = vehicle.pricePerDay;
+  const estimatedTotal = billableDays * ratePerDay;
 
   const booking = await addBooking({
     vehicleId,
@@ -446,46 +470,106 @@ async function createManualBooking(formData: FormData) {
     fullName: customer.fullName,
     email: customer.email,
     phone: customer.phone,
-    status: 'pending',
+    status: autoConfirm ? 'confirmed' : 'pending',
+    pricePerDaySnapshot: ratePerDay,
+    totalDaysSnapshot: billableDays,
+    totalPriceSnapshot: estimatedTotal,
   });
 
   const vehicleName = getVehicleDisplayName(vehicle);
-  const billableDays = calculateBillableDays(pickupDate, returnDate);
-  const ratePerDay = vehicle.pricePerDay;
-  const estimatedTotal = billableDays * ratePerDay;
 
-  const guestSubject = 'Booking Request Received - Moon Rentals';
-  const guestBody = buildReceivedLogMessage({
-    vehicle: vehicleName,
-    pickupAt,
-    returnAt,
-    bookingId: booking.id,
-    ratePerDay,
-    billableDays,
-    estimatedTotal,
-  });
+  if (autoConfirm) {
+    const guestSubject = 'Booking Confirmed - Moon Rentals';
+    const guestBody = buildApprovedLogMessage({
+      vehicle: vehicleName,
+      pickupAt,
+      returnAt,
+      bookingId: booking.id,
+      ratePerDay,
+      billableDays,
+      estimatedTotal,
+    });
 
-  await sendBookingReceivedEmail({
-    to: customer.email,
-    name: customer.fullName,
-    vehicle: vehicleName,
-    pickupAt,
-    returnAt,
-    bookingId: booking.id,
-    vehicleImage: vehicle.image,
-    ratePerDay,
-    billableDays,
-    estimatedTotal,
-  });
+    await sendBookingApprovedEmail({
+      to: customer.email,
+      name: customer.fullName,
+      vehicle: vehicleName,
+      pickupAt,
+      returnAt,
+      bookingId: booking.id,
+      vehicleImage: vehicle.image,
+      ratePerDay,
+      billableDays,
+      estimatedTotal,
+    });
 
-  await recordBookingMessageLog({
-    bookingId: booking.id,
-    kind: 'automated',
-    template: 'booking_received',
-    recipientEmail: customer.email,
-    subject: guestSubject,
-    body: guestBody,
-  });
+    await recordBookingMessageLog({
+      bookingId: booking.id,
+      kind: 'automated',
+      template: 'booking_approved',
+      recipientEmail: customer.email,
+      subject: guestSubject,
+      body: guestBody,
+    });
+
+    await recordAdminAction({
+      action: 'BOOKING_CREATED_AND_CONFIRMED',
+      entity: 'booking',
+      entityId: booking.id,
+      metadata: {
+        customerId: customer.id,
+        vehicleId,
+        pickupAt,
+        returnAt,
+      },
+    });
+  } else {
+    const guestSubject = 'Booking Request Received - Moon Rentals';
+    const guestBody = buildReceivedLogMessage({
+      vehicle: vehicleName,
+      pickupAt,
+      returnAt,
+      bookingId: booking.id,
+      ratePerDay,
+      billableDays,
+      estimatedTotal,
+    });
+
+    await sendBookingReceivedEmail({
+      to: customer.email,
+      name: customer.fullName,
+      vehicle: vehicleName,
+      pickupAt,
+      returnAt,
+      bookingId: booking.id,
+      vehicleImage: vehicle.image,
+      ratePerDay,
+      billableDays,
+      estimatedTotal,
+    });
+
+    await recordBookingMessageLog({
+      bookingId: booking.id,
+      kind: 'automated',
+      template: 'booking_received',
+      recipientEmail: customer.email,
+      subject: guestSubject,
+      body: guestBody,
+    });
+
+    await recordAdminAction({
+      action: 'BOOKING_CREATED',
+      entity: 'booking',
+      entityId: booking.id,
+      metadata: {
+        customerId: customer.id,
+        vehicleId,
+        pickupAt,
+        returnAt,
+        status: 'pending',
+      },
+    });
+  }
 
   revalidatePath('/admin/bookings');
   revalidatePath(`/admin/customers/${customer.id}`);
@@ -827,11 +911,13 @@ export default async function CustomerDetailPage({
 
             {customer.manualVerificationStatus ? (
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Manual override is active, so overall verification is not currently following document status.
+                Manual override is active, so overall verification is not currently
+                following document status.
               </p>
             ) : (
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Auto mode requires one approved license and one approved insurance document.
+                Auto mode requires one approved license and one approved insurance
+                document.
               </p>
             )}
           </div>
@@ -914,7 +1000,8 @@ export default async function CustomerDetailPage({
         <div className="mb-4">
           <h3 className="text-lg font-semibold">Create Manual Booking</h3>
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-            Use this when a customer calls in or you need to create the booking on their behalf.
+            Use this when a customer calls in or you need to create the booking on
+            their behalf.
           </p>
         </div>
 
@@ -937,7 +1024,8 @@ export default async function CustomerDetailPage({
               {vehicles.map((vehicle) => (
                 <option key={vehicle.id} value={vehicle.id}>
                   {vehicle.year} {vehicle.make} {vehicle.model}
-                  {vehicle.color ? ` (${vehicle.color})` : ''} — ${vehicle.pricePerDay}/day
+                  {vehicle.color ? ` (${vehicle.color})` : ''} — $
+                  {vehicle.pricePerDay}/day
                 </option>
               ))}
             </select>
@@ -967,7 +1055,17 @@ export default async function CustomerDetailPage({
             />
           </div>
 
-          <div className="md:col-span-4 flex justify-end">
+          <div className="md:col-span-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                type="checkbox"
+                name="autoConfirm"
+                value="yes"
+                className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black dark:border-gray-700"
+              />
+              Confirm booking immediately
+            </label>
+
             <button
               type="submit"
               className="rounded-xl border border-black bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 dark:border-white dark:bg-white dark:text-black"

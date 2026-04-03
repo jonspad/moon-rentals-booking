@@ -67,6 +67,9 @@ model Booking {
   status                  String              @default("pending")
   verificationStatus      String              @default("pending")
   paymentStatus           String              @default("unpaid")
+  pricePerDaySnapshot     Int
+  totalDaysSnapshot       Int
+  totalPriceSnapshot      Int
   rejectionReason         String?
   lastAdminMessageSubject String?
   lastAdminMessageBody    String?
@@ -195,4 +198,18 @@ model AdminUser {
   passwordHash String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model AdminAction {
+  id        Int      @id @default(autoincrement())
+  action    String
+  entity    String
+  entityId  Int?
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([entity])
+  @@index([entityId])
+  @@index([action])
+  @@index([createdAt])
 }

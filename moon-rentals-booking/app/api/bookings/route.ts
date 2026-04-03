@@ -6,6 +6,8 @@ import {
   recordBookingMessageLog,
   updateBookingStatus,
 } from '@/lib/bookingStore';
+import { recordAdminAction } from '@/lib/adminAudit';
+import { getBlocks } from '@/lib/blockStore';
 import { prisma } from '@/lib/prisma';
 import {
   sendAdminNewBookingEmail,
@@ -120,57 +122,64 @@ function buildRejectedLogMessage(input: {
     .join('\n');
 }
 
-async function findOverlappingConfirmedBooking(input: {
-  vehicleId: number;
-  pickupAt: Date;
-  returnAt: Date;
-  excludeBookingId?: number;
-}) {
-  return prisma.booking.findFirst({
+async function getVehicleForBooking(vehicleId: number) {
+  return prisma.vehicle.findFirst({
     where: {
-      vehicleId: input.vehicleId,
-      status: 'confirmed',
-      id:
-        input.excludeBookingId !== undefined
-          ? { not: input.excludeBookingId }
-          : undefined,
-      pickupAt: {
-        lt: input.returnAt,
-      },
-      returnAt: {
-        gt: input.pickupAt,
-      },
+      id: vehicleId,
+      isActive: true,
     },
     select: {
       id: true,
-      pickupAt: true,
-      returnAt: true,
+      year: true,
+      make: true,
+      model: true,
+      color: true,
+      pricePerDay: true,
+      image: true,
     },
   });
 }
 
-async function findOverlappingVehicleBlock(input: {
+async function findConflicts(input: {
   vehicleId: number;
-  pickupAt: Date;
-  returnAt: Date;
+  pickupDate: Date;
+  returnDate: Date;
+  excludeBookingId?: number;
 }) {
-  return prisma.vehicleBlock.findFirst({
-    where: {
-      vehicleId: input.vehicleId,
-      startAt: {
-        lt: input.returnAt,
-      },
-      endAt: {
-        gt: input.pickupAt,
-      },
-    },
-    select: {
-      id: true,
-      blockGroupId: true,
-      startAt: true,
-      endAt: true,
-    },
+  const [blocks, bookings] = await Promise.all([getBlocks(), getBookings()]);
+
+  const conflictingBlock = blocks.find((block) => {
+    if (block.vehicleId !== input.vehicleId) return false;
+
+    const blockStart = new Date(block.start);
+    const blockEnd = new Date(block.end);
+
+    if (Number.isNaN(blockStart.getTime()) || Number.isNaN(blockEnd.getTime())) {
+      return false;
+    }
+
+    return isOverlapping(input.pickupDate, input.returnDate, blockStart, blockEnd);
   });
+
+  const conflictingBooking = bookings.find((booking) => {
+    if (booking.id === input.excludeBookingId) return false;
+    if (booking.vehicleId !== input.vehicleId) return false;
+    if (booking.status !== 'confirmed') return false;
+
+    const bookingStart = new Date(booking.pickupAt);
+    const bookingEnd = new Date(booking.returnAt);
+
+    if (
+      Number.isNaN(bookingStart.getTime()) ||
+      Number.isNaN(bookingEnd.getTime())
+    ) {
+      return false;
+    }
+
+    return isOverlapping(input.pickupDate, input.returnDate, bookingStart, bookingEnd);
+  });
+
+  return { conflictingBlock, conflictingBooking };
 }
 
 export async function GET() {
@@ -218,6 +227,7 @@ export async function POST(req: NextRequest) {
     const customerId = Number(body.customerId);
     const pickupAt = body.pickupAt;
     const returnAt = body.returnAt;
+    const autoConfirm = body.autoConfirm === true;
     const fullName = (body.fullName || '').trim();
     const email = (body.email || '').trim();
     const phone = (body.phone || '').trim();
@@ -231,21 +241,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const vehicle = await prisma.vehicle.findFirst({
-      where: {
-        id: vehicleId,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        year: true,
-        make: true,
-        model: true,
-        color: true,
-        pricePerDay: true,
-        image: true,
-      },
-    });
+    const vehicle = await getVehicleForBooking(vehicleId);
 
     if (!vehicle) {
       return NextResponse.json({ error: 'Vehicle not found.' }, { status: 404 });
@@ -271,18 +267,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const [conflictingBlock, conflictingBooking] = await Promise.all([
-      findOverlappingVehicleBlock({
-        vehicleId,
-        pickupAt: pickupDate,
-        returnAt: returnDate,
-      }),
-      findOverlappingConfirmedBooking({
-        vehicleId,
-        pickupAt: pickupDate,
-        returnAt: returnDate,
-      }),
-    ]);
+    const { conflictingBlock, conflictingBooking } = await findConflicts({
+      vehicleId,
+      pickupDate,
+      returnDate,
+    });
 
     if (conflictingBlock) {
       return NextResponse.json(
@@ -377,6 +366,11 @@ export async function POST(req: NextRequest) {
       };
     }
 
+    const totalDaysSnapshot = calculateBillableDays(pickupDate, returnDate);
+    const pricePerDaySnapshot = vehicle.pricePerDay;
+    const totalPriceSnapshot = totalDaysSnapshot * pricePerDaySnapshot;
+    const nextStatus = autoConfirm ? 'confirmed' : 'pending';
+
     const booking = await addBooking({
       vehicleId,
       customerId: customer.id,
@@ -385,62 +379,122 @@ export async function POST(req: NextRequest) {
       fullName: customer.fullName,
       email: customer.email,
       phone: customer.phone,
-      status: 'pending',
+      status: nextStatus,
+      pricePerDaySnapshot,
+      totalDaysSnapshot,
+      totalPriceSnapshot,
     });
 
     const vehicleName = getVehicleDisplayName(vehicle);
-    const billableDays = calculateBillableDays(pickupDate, returnDate);
-    const ratePerDay = vehicle.pricePerDay;
-    const estimatedTotal = billableDays * ratePerDay;
     const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL?.trim();
 
-    const guestSubject = 'Booking Request Received - Moon Rentals';
-    const guestBody = buildReceivedLogMessage({
-      vehicle: vehicleName,
-      pickupAt,
-      returnAt,
-      bookingId: booking.id,
-      ratePerDay,
-      billableDays,
-      estimatedTotal,
-    });
-
-    await sendBookingReceivedEmail({
-      to: customer.email,
-      name: customer.fullName,
-      vehicle: vehicleName,
-      pickupAt,
-      returnAt,
-      bookingId: booking.id,
-      vehicleImage: vehicle.image,
-      ratePerDay,
-      billableDays,
-      estimatedTotal,
-    });
-
-    await recordBookingMessageLog({
-      bookingId: booking.id,
-      kind: 'automated',
-      template: 'booking_received',
-      recipientEmail: customer.email,
-      subject: guestSubject,
-      body: guestBody,
-    });
-
-    if (adminNotificationEmail) {
-      await sendAdminNewBookingEmail({
-        to: adminNotificationEmail,
-        bookingId: booking.id,
-        customerName: customer.fullName,
-        customerEmail: customer.email,
-        customerPhone: customer.phone,
+    if (autoConfirm) {
+      const subject = 'Booking Confirmed - Moon Rentals';
+      const bodyText = buildApprovedLogMessage({
         vehicle: vehicleName,
         pickupAt,
         returnAt,
+        bookingId: booking.id,
+        ratePerDay: pricePerDaySnapshot,
+        billableDays: totalDaysSnapshot,
+        estimatedTotal: totalPriceSnapshot,
+      });
+
+      await sendBookingApprovedEmail({
+        to: customer.email,
+        name: customer.fullName,
+        vehicle: vehicleName,
+        pickupAt,
+        returnAt,
+        bookingId: booking.id,
         vehicleImage: vehicle.image,
-        ratePerDay,
-        billableDays,
-        estimatedTotal,
+        ratePerDay: pricePerDaySnapshot,
+        billableDays: totalDaysSnapshot,
+        estimatedTotal: totalPriceSnapshot,
+      });
+
+      await recordBookingMessageLog({
+        bookingId: booking.id,
+        kind: 'automated',
+        template: 'booking_approved',
+        recipientEmail: customer.email,
+        subject,
+        body: bodyText,
+      });
+
+      await recordAdminAction({
+        action: 'BOOKING_CREATED_AND_CONFIRMED',
+        entity: 'booking',
+        entityId: booking.id,
+        metadata: {
+          customerId: customer.id,
+          vehicleId,
+          pickupAt,
+          returnAt,
+        },
+      });
+    } else {
+      const guestSubject = 'Booking Request Received - Moon Rentals';
+      const guestBody = buildReceivedLogMessage({
+        vehicle: vehicleName,
+        pickupAt,
+        returnAt,
+        bookingId: booking.id,
+        ratePerDay: pricePerDaySnapshot,
+        billableDays: totalDaysSnapshot,
+        estimatedTotal: totalPriceSnapshot,
+      });
+
+      await sendBookingReceivedEmail({
+        to: customer.email,
+        name: customer.fullName,
+        vehicle: vehicleName,
+        pickupAt,
+        returnAt,
+        bookingId: booking.id,
+        vehicleImage: vehicle.image,
+        ratePerDay: pricePerDaySnapshot,
+        billableDays: totalDaysSnapshot,
+        estimatedTotal: totalPriceSnapshot,
+      });
+
+      await recordBookingMessageLog({
+        bookingId: booking.id,
+        kind: 'automated',
+        template: 'booking_received',
+        recipientEmail: customer.email,
+        subject: guestSubject,
+        body: guestBody,
+      });
+
+      if (adminNotificationEmail) {
+        await sendAdminNewBookingEmail({
+          to: adminNotificationEmail,
+          bookingId: booking.id,
+          customerName: customer.fullName,
+          customerEmail: customer.email,
+          customerPhone: customer.phone,
+          vehicle: vehicleName,
+          pickupAt,
+          returnAt,
+          vehicleImage: vehicle.image,
+          ratePerDay: pricePerDaySnapshot,
+          billableDays: totalDaysSnapshot,
+          estimatedTotal: totalPriceSnapshot,
+        });
+      }
+
+      await recordAdminAction({
+        action: 'BOOKING_CREATED',
+        entity: 'booking',
+        entityId: booking.id,
+        metadata: {
+          customerId: customer.id,
+          vehicleId,
+          pickupAt,
+          returnAt,
+          status: nextStatus,
+        },
       });
     }
 
@@ -486,45 +540,27 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const pickupDate = new Date(currentBooking.pickupAt);
-    const returnDate = new Date(currentBooking.returnAt);
+    if (status === 'confirmed' && currentBooking.status !== 'confirmed') {
+      const pickupDate = new Date(currentBooking.pickupAt);
+      const returnDate = new Date(currentBooking.returnAt);
 
-    if (
-      status === 'confirmed' &&
-      currentBooking.status !== 'confirmed' &&
-      !Number.isNaN(pickupDate.getTime()) &&
-      !Number.isNaN(returnDate.getTime())
-    ) {
-      const [conflictingBlock, conflictingBooking] = await Promise.all([
-        findOverlappingVehicleBlock({
-          vehicleId: currentBooking.vehicleId,
-          pickupAt: pickupDate,
-          returnAt: returnDate,
-        }),
-        findOverlappingConfirmedBooking({
-          vehicleId: currentBooking.vehicleId,
-          pickupAt: pickupDate,
-          returnAt: returnDate,
-          excludeBookingId: currentBooking.id,
-        }),
-      ]);
+      const { conflictingBlock, conflictingBooking } = await findConflicts({
+        vehicleId: currentBooking.vehicleId,
+        pickupDate,
+        returnDate,
+        excludeBookingId: currentBooking.id,
+      });
 
       if (conflictingBlock) {
         return NextResponse.json(
-          {
-            error:
-              'This booking cannot be confirmed because the vehicle is blocked for those dates.',
-          },
+          { error: 'This booking overlaps an existing vehicle block.' },
           { status: 409 }
         );
       }
 
       if (conflictingBooking) {
         return NextResponse.json(
-          {
-            error:
-              'This booking cannot be confirmed because the vehicle is already booked for those dates.',
-          },
+          { error: 'This booking overlaps another confirmed booking.' },
           { status: 409 }
         );
       }
@@ -550,7 +586,6 @@ export async function PATCH(req: NextRequest) {
         make: true,
         model: true,
         color: true,
-        pricePerDay: true,
         image: true,
       },
     });
@@ -559,19 +594,9 @@ export async function PATCH(req: NextRequest) {
       ? getVehicleDisplayName(vehicle)
       : `Vehicle ${updatedBooking.vehicleId}`;
 
-    const updatedPickupDate = new Date(updatedBooking.pickupAt);
-    const updatedReturnDate = new Date(updatedBooking.returnAt);
-    const billableDays =
-      Number.isNaN(updatedPickupDate.getTime()) ||
-      Number.isNaN(updatedReturnDate.getTime())
-        ? null
-        : calculateBillableDays(updatedPickupDate, updatedReturnDate);
-
-    const ratePerDay = vehicle?.pricePerDay ?? null;
-    const estimatedTotal =
-      billableDays != null && ratePerDay != null
-        ? billableDays * ratePerDay
-        : null;
+    const ratePerDay = updatedBooking.pricePerDaySnapshot;
+    const billableDays = updatedBooking.totalDaysSnapshot;
+    const estimatedTotal = updatedBooking.totalPriceSnapshot;
 
     if (status === 'confirmed' && currentBooking.status !== 'confirmed') {
       const subject = 'Booking Confirmed - Moon Rentals';
@@ -605,6 +630,15 @@ export async function PATCH(req: NextRequest) {
         recipientEmail: updatedBooking.email,
         subject,
         body: bodyText,
+      });
+
+      await recordAdminAction({
+        action: 'BOOKING_CONFIRMED',
+        entity: 'booking',
+        entityId: updatedBooking.id,
+        metadata: {
+          vehicleId: updatedBooking.vehicleId,
+        },
       });
     }
 
@@ -647,6 +681,16 @@ export async function PATCH(req: NextRequest) {
         subject,
         body: bodyText,
       });
+
+      await recordAdminAction({
+        action: mode === 'cancelled' ? 'BOOKING_CANCELLED' : 'BOOKING_REJECTED',
+        entity: 'booking',
+        entityId: updatedBooking.id,
+        metadata: {
+          vehicleId: updatedBooking.vehicleId,
+          reason: updatedBooking.rejectionReason,
+        },
+      });
     }
 
     return NextResponse.json({ booking: updatedBooking });
@@ -678,6 +722,12 @@ export async function DELETE(req: NextRequest) {
         { status: 404 }
       );
     }
+
+    await recordAdminAction({
+      action: 'BOOKING_DELETED',
+      entity: 'booking',
+      entityId: Number(id),
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

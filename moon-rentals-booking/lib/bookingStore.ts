@@ -31,6 +31,9 @@ export type Booking = {
   email: string;
   phone: string;
   status: BookingStatus;
+  pricePerDaySnapshot: number;
+  totalDaysSnapshot: number;
+  totalPriceSnapshot: number;
   rejectionReason: string | null;
   lastAdminMessageSubject: string | null;
   lastAdminMessageBody: string | null;
@@ -38,7 +41,7 @@ export type Booking = {
   createdAt: string;
 };
 
-function mapBooking(booking: {
+type BookingRecord = {
   id: number;
   vehicleId: number;
   customerId: number;
@@ -48,12 +51,17 @@ function mapBooking(booking: {
   email: string;
   phone: string;
   status: string;
+  pricePerDaySnapshot: number;
+  totalDaysSnapshot: number;
+  totalPriceSnapshot: number;
   rejectionReason: string | null;
   lastAdminMessageSubject: string | null;
   lastAdminMessageBody: string | null;
   lastAdminMessagedAt: Date | null;
   createdAt: Date;
-}): Booking {
+};
+
+function mapBooking(booking: BookingRecord): Booking {
   return {
     id: booking.id,
     vehicleId: booking.vehicleId,
@@ -64,6 +72,9 @@ function mapBooking(booking: {
     email: booking.email,
     phone: booking.phone,
     status: booking.status as BookingStatus,
+    pricePerDaySnapshot: booking.pricePerDaySnapshot,
+    totalDaysSnapshot: booking.totalDaysSnapshot,
+    totalPriceSnapshot: booking.totalPriceSnapshot,
     rejectionReason: booking.rejectionReason,
     lastAdminMessageSubject: booking.lastAdminMessageSubject,
     lastAdminMessageBody: booking.lastAdminMessageBody,
@@ -132,6 +143,9 @@ export async function addBooking(
       email: booking.email,
       phone: booking.phone,
       status: booking.status,
+      pricePerDaySnapshot: booking.pricePerDaySnapshot,
+      totalDaysSnapshot: booking.totalDaysSnapshot,
+      totalPriceSnapshot: booking.totalPriceSnapshot,
     },
   });
 
