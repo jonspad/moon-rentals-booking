@@ -8,28 +8,27 @@ datasource db {
 }
 
 model Vehicle {
-  id           Int     @id @default(autoincrement())
-  groupId      String
-  slug         String  @unique
-  vin          String?
-  licensePlate String?
-  year         Int
-  make         String
-  model        String
-  category     String
-  color        String
-  seats        Int
-  transmission String
-  pricePerDay  Int
-  image        String
-  description  String
-  isActive     Boolean @default(true)
-
-  bookings Booking[]
-  blocks   VehicleBlock[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            Int            @id @default(autoincrement())
+  groupId       String
+  slug          String         @unique
+  vin           String?
+  licensePlate  String?
+  year          Int
+  make          String
+  model         String
+  category      String
+  color         String
+  seats         Int
+  transmission  String
+  pricePerDay   Int
+  image         String
+  description   String
+  internalNotes String?
+  isActive      Boolean        @default(true)
+  bookings      Booking[]
+  blocks        VehicleBlock[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@index([groupId])
   @@index([category])
@@ -37,56 +36,44 @@ model Vehicle {
 }
 
 model Customer {
-  id       Int    @id @default(autoincrement())
-  fullName String
-  email    String @unique
-  phone    String
-
-  notes String?
-
-  // 🔥 NEW
-  verificationStatus String    @default("unverified") // unverified | pending | approved | rejected
+  id                 Int                @id @default(autoincrement())
+  fullName           String
+  email              String             @unique
+  phone              String
+  notes              String?
+  verificationStatus String             @default("unverified")
   verifiedAt         DateTime?
-
-  bookings  Booking[]
-  documents CustomerDocument[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  bookings           Booking[]
+  documents          CustomerDocument[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   @@index([fullName])
   @@index([verificationStatus])
 }
 
 model Booking {
-  id         Int @id @default(autoincrement())
-  vehicleId  Int
-  customerId Int
-
-  fullName String
-  email    String
-  phone    String
-
-  pickupAt DateTime
-  returnAt DateTime
-
-  status String @default("pending") // pending | confirmed | cancelled
-
-  // 🔥 NEW
-  verificationStatus String @default("pending") // pending | approved | rejected
-  paymentStatus      String @default("unpaid") // unpaid | pending | paid | refunded
-
+  id                      Int       @id @default(autoincrement())
+  vehicleId               Int
+  customerId              Int
+  fullName                String
+  email                   String
+  phone                   String
+  pickupAt                DateTime
+  returnAt                DateTime
+  status                  String    @default("pending")
+  verificationStatus      String    @default("pending")
+  paymentStatus           String    @default("unpaid")
   rejectionReason         String?
   lastAdminMessageSubject String?
   lastAdminMessageBody    String?
   lastAdminMessagedAt     DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
-  vehicle  Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  customerDocuments CustomerDocument[]
+  vehicle   Vehicle            @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  customer  Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  documents CustomerDocument[]
 
   @@index([vehicleId])
   @@index([customerId])
@@ -102,38 +89,42 @@ model VehicleBlock {
   startAt   DateTime
   endAt     DateTime
   reason    String?
-
-  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
 
   @@index([vehicleId])
   @@index([startAt, endAt])
 }
 
 model CustomerDocument {
-  id         Int  @id @default(autoincrement())
-  customerId Int
-  bookingId  Int?
-
-  documentType String // license | insurance
+  id           Int       @id @default(autoincrement())
+  customerId   Int
+  bookingId    Int?
+  documentType String
   filePath     String
   originalName String
   mimeType     String?
-
-  status     String    @default("pending") // pending | approved | rejected
-  notes      String?
-  reviewedAt DateTime?
+  status       String    @default("pending")
+  notes        String?
+  reviewedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
   booking  Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
   @@index([customerId])
   @@index([bookingId])
   @@index([documentType])
   @@index([status])
+}
+
+model AdminUser {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
