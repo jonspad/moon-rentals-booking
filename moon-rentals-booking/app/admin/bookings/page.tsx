@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
@@ -542,7 +543,14 @@ export default function AdminBookingsPage() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-xl font-semibold">{vehicleLabel}</h3>
+                      <h3 className="text-xl font-semibold">
+                        <Link
+                          href={`/admin/vehicles?vehicleId=${booking.vehicleId}`}
+                          className="text-blue-600 transition hover:underline dark:text-blue-400"
+                        >
+                          {vehicleLabel}
+                        </Link>
+                      </h3>
                       <span
                         className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getStatusClasses(
                           booking.status
