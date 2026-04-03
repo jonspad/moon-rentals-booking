@@ -24,6 +24,8 @@ type CustomerDetailPageProps = {
   }>;
 };
 
+type DocumentStatusSummary = 'approved' | 'rejected' | 'pending' | 'missing';
+
 function sanitizeFilename(filename: string) {
   return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
@@ -72,6 +74,29 @@ function getCustomerVerificationStatus(
   );
 
   if (hasApprovedLicense && hasApprovedInsurance) {
+    return 'approved';
+  }
+
+  return 'pending';
+}
+
+function getDocumentTypeSummary(
+  documents: Array<{ documentType: string; status: string }>,
+  documentType: 'license' | 'insurance'
+): DocumentStatusSummary {
+  const matchingDocuments = documents.filter(
+    (document) => document.documentType === documentType
+  );
+
+  if (matchingDocuments.length === 0) {
+    return 'missing';
+  }
+
+  if (matchingDocuments.some((document) => document.status === 'rejected')) {
+    return 'rejected';
+  }
+
+  if (matchingDocuments.some((document) => document.status === 'approved')) {
     return 'approved';
   }
 
@@ -129,6 +154,8 @@ function getStatusClasses(status: string) {
       return 'border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-900 dark:bg-yellow-950/30 dark:text-yellow-300';
     case 'unverified':
       return 'border-gray-300 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300';
+    case 'missing':
+      return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300';
     default:
       return 'border-gray-300 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300';
   }
@@ -426,6 +453,20 @@ export default async function CustomerDetailPage({
     notFound();
   }
 
+  const verificationDocuments = customer.documents.map((document) => ({
+    documentType: document.documentType,
+    status: document.status,
+  }));
+
+  const licenseStatus = getDocumentTypeSummary(
+    verificationDocuments,
+    'license'
+  );
+  const insuranceStatus = getDocumentTypeSummary(
+    verificationDocuments,
+    'insurance'
+  );
+
   return (
     <section className="mt-8 space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -449,7 +490,7 @@ export default async function CustomerDetailPage({
           <div className="mb-2">
             <span className="font-medium">Documents:</span> {customer._count.documents}
           </div>
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-3 flex items-center gap-2">
             <span className="font-medium">Verification:</span>
             <span
               className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${getStatusClasses(
@@ -458,6 +499,44 @@ export default async function CustomerDetailPage({
             >
               {customer.verificationStatus}
             </span>
+          </div>
+
+          <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Verification Breakdown
+            </div>
+
+            <div className="flex items-center justify-between gap-3 py-1">
+              <span className="text-sm">License</span>
+              <span
+                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${getStatusClasses(
+                  licenseStatus
+                )}`}
+              >
+                {licenseStatus}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 py-1">
+              <span className="text-sm">Insurance</span>
+              <span
+                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${getStatusClasses(
+                  insuranceStatus
+                )}`}
+              >
+                {insuranceStatus}
+              </span>
+            </div>
+
+            {customer.manualVerificationStatus ? (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                Manual override is active, so overall verification is not currently following document status.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                Auto mode requires one approved license and one approved insurance document.
+              </p>
+            )}
           </div>
 
           <div className="mb-3 flex flex-wrap gap-2">
