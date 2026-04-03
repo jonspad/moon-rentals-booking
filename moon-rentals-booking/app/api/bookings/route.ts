@@ -47,7 +47,18 @@ function calculateBillableDays(start: Date, end: Date) {
 
 export async function GET() {
   try {
-    const bookings = await getBookings();
+    const bookings = await prisma.booking.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            verificationStatus: true,
+          },
+        },
+      },
+    });
+
     return NextResponse.json({ bookings });
   } catch (error) {
     console.error('GET /api/bookings error:', error);

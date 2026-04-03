@@ -6,6 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import CustomerNotesForm from './CustomerNotesForm';
+import CustomerProfileForm from './CustomerProfileForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -596,29 +597,19 @@ export default async function CustomerDetailPage({
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
           <h3 className="text-lg font-semibold">Contact Details</h3>
-          <div className="mt-4 space-y-3 text-sm">
-            <div>
-              <div className="text-gray-500">Full Name</div>
-              <div className="font-medium">{customer.fullName}</div>
-            </div>
+          <CustomerProfileForm
+            customerId={customer.id}
+            initialFullName={customer.fullName}
+            initialEmail={customer.email}
+            initialPhone={customer.phone}
+          />
 
-            <div>
-              <div className="text-gray-500">Email</div>
-              <div className="font-medium">{customer.email}</div>
+          {customer.verifiedAt ? (
+            <div className="mt-4 border-t border-gray-200 pt-4 text-sm dark:border-gray-800">
+              <div className="text-gray-500">Verified At</div>
+              <div className="font-medium">{formatDateTime(customer.verifiedAt)}</div>
             </div>
-
-            <div>
-              <div className="text-gray-500">Phone</div>
-              <div className="font-medium">{customer.phone}</div>
-            </div>
-
-            {customer.verifiedAt ? (
-              <div>
-                <div className="text-gray-500">Verified At</div>
-                <div className="font-medium">{formatDateTime(customer.verifiedAt)}</div>
-              </div>
-            ) : null}
-          </div>
+          ) : null}
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 lg:col-span-2">

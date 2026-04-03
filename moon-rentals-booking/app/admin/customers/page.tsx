@@ -7,8 +7,29 @@ type AdminCustomersPageProps = {
   searchParams?: Promise<{
     q?: string;
     status?: string;
+    sort?: string;
+    dir?: string;
   }>;
 };
+
+type SortField =
+  | 'fullName'
+  | 'email'
+  | 'phone'
+  | 'bookings'
+  | 'verificationStatus'
+  | 'createdAt';
+
+type SortDirection = 'asc' | 'desc';
+
+const ALLOWED_SORT_FIELDS: SortField[] = [
+  'fullName',
+  'email',
+  'phone',
+  'bookings',
+  'verificationStatus',
+  'createdAt',
+];
 
 function getStatusClasses(status: string) {
   switch (status) {
@@ -56,12 +77,62 @@ function formatDate(value: Date | string) {
   });
 }
 
+function getSortArrow(
+  activeSort: SortField,
+  activeDir: SortDirection,
+  column: SortField
+) {
+  if (activeSort !== column) {
+    return '↕';
+  }
+
+  return activeDir === 'asc' ? '↑' : '↓';
+}
+
+function buildSortHref(params: {
+  query: string;
+  status: string;
+  activeSort: SortField;
+  activeDir: SortDirection;
+  nextSort: SortField;
+}) {
+  const search = new URLSearchParams();
+
+  if (params.query) {
+    search.set('q', params.query);
+  }
+
+  if (params.status && params.status !== 'all') {
+    search.set('status', params.status);
+  }
+
+  const nextDir: SortDirection =
+    params.activeSort === params.nextSort && params.activeDir === 'asc'
+      ? 'desc'
+      : 'asc';
+
+  search.set('sort', params.nextSort);
+  search.set('dir', nextDir);
+
+  const qs = search.toString();
+  return qs ? `/admin/customers?${qs}` : '/admin/customers';
+}
+
 export default async function AdminCustomersPage({
   searchParams,
 }: AdminCustomersPageProps) {
   const resolvedSearchParams = (await searchParams) ?? {};
   const query = (resolvedSearchParams.q ?? '').trim();
   const status = (resolvedSearchParams.status ?? '').trim().toLowerCase();
+
+  const requestedSort = (resolvedSearchParams.sort ?? 'createdAt').trim() as SortField;
+  const requestedDir = (resolvedSearchParams.dir ?? 'desc').trim() as SortDirection;
+
+  const sort: SortField = ALLOWED_SORT_FIELDS.includes(requestedSort)
+    ? requestedSort
+    : 'createdAt';
+
+  const dir: SortDirection = requestedDir === 'asc' ? 'asc' : 'desc';
 
   const customers = await prisma.customer.findMany({
     where: {
@@ -82,12 +153,33 @@ export default async function AdminCustomersPage({
           : {},
       ],
     },
-    orderBy: { createdAt: 'desc' },
     include: {
       _count: {
         select: { bookings: true },
       },
     },
+  });
+
+  const sortedCustomers = [...customers].sort((a, b) => {
+    const multiplier = dir === 'asc' ? 1 : -1;
+
+    if (sort === 'bookings') {
+      return (a._count.bookings - b._count.bookings) * multiplier;
+    }
+
+    if (sort === 'createdAt') {
+      return (
+        (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) *
+        multiplier
+      );
+    }
+
+    const aValue = String(a[sort] ?? '').toLowerCase();
+    const bValue = String(b[sort] ?? '').toLowerCase();
+
+    if (aValue < bValue) return -1 * multiplier;
+    if (aValue > bValue) return 1 * multiplier;
+    return 0;
   });
 
   const allCustomers = await prisma.customer.findMany({
@@ -133,6 +225,9 @@ export default async function AdminCustomersPage({
         method="GET"
         className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950"
       >
+        <input type="hidden" name="sort" value={sort} />
+        <input type="hidden" name="dir" value={dir} />
+
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_140px]">
           <input
             type="text"
@@ -177,29 +272,77 @@ export default async function AdminCustomersPage({
           <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
             <thead className="bg-gray-50 dark:bg-gray-900/60">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">
-                  Email
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">
-                  Phone
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">
-                  Bookings
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">
-                  Created
-                </th>
+                <SortableHeader
+                  label="Name"
+                  href={buildSortHref({
+                    query,
+                    status,
+                    activeSort: sort,
+                    activeDir: dir,
+                    nextSort: 'fullName',
+                  })}
+                  arrow={getSortArrow(sort, dir, 'fullName')}
+                />
+                <SortableHeader
+                  label="Email"
+                  href={buildSortHref({
+                    query,
+                    status,
+                    activeSort: sort,
+                    activeDir: dir,
+                    nextSort: 'email',
+                  })}
+                  arrow={getSortArrow(sort, dir, 'email')}
+                />
+                <SortableHeader
+                  label="Phone"
+                  href={buildSortHref({
+                    query,
+                    status,
+                    activeSort: sort,
+                    activeDir: dir,
+                    nextSort: 'phone',
+                  })}
+                  arrow={getSortArrow(sort, dir, 'phone')}
+                />
+                <SortableHeader
+                  label="Bookings"
+                  href={buildSortHref({
+                    query,
+                    status,
+                    activeSort: sort,
+                    activeDir: dir,
+                    nextSort: 'bookings',
+                  })}
+                  arrow={getSortArrow(sort, dir, 'bookings')}
+                />
+                <SortableHeader
+                  label="Status"
+                  href={buildSortHref({
+                    query,
+                    status,
+                    activeSort: sort,
+                    activeDir: dir,
+                    nextSort: 'verificationStatus',
+                  })}
+                  arrow={getSortArrow(sort, dir, 'verificationStatus')}
+                />
+                <SortableHeader
+                  label="Created"
+                  href={buildSortHref({
+                    query,
+                    status,
+                    activeSort: sort,
+                    activeDir: dir,
+                    nextSort: 'createdAt',
+                  })}
+                  arrow={getSortArrow(sort, dir, 'createdAt')}
+                />
               </tr>
             </thead>
 
             <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-              {customers.length === 0 ? (
+              {sortedCustomers.length === 0 ? (
                 <tr>
                   <td
                     colSpan={6}
@@ -209,7 +352,7 @@ export default async function AdminCustomersPage({
                   </td>
                 </tr>
               ) : (
-                customers.map((customer) => (
+                sortedCustomers.map((customer) => (
                   <tr
                     key={customer.id}
                     className="transition hover:bg-gray-50 dark:hover:bg-gray-900/40"
@@ -264,5 +407,27 @@ function MetricCard({
       <div className="text-sm text-gray-500 dark:text-gray-400">{label}</div>
       <div className="mt-2 text-2xl font-semibold">{value}</div>
     </div>
+  );
+}
+
+function SortableHeader({
+  label,
+  href,
+  arrow,
+}: {
+  label: string;
+  href: string;
+  arrow: string;
+}) {
+  return (
+    <th className="px-4 py-3 text-left font-medium text-gray-500">
+      <Link
+        href={href}
+        className="inline-flex items-center gap-1 transition hover:text-black dark:hover:text-white"
+      >
+        <span>{label}</span>
+        <span className="text-xs">{arrow}</span>
+      </Link>
+    </th>
   );
 }

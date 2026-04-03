@@ -19,6 +19,10 @@ type Booking = {
   lastAdminMessageBody: string | null;
   lastAdminMessagedAt: string | null;
   createdAt: string;
+  customer?: {
+    id: number;
+    verificationStatus: string;
+  } | null;
 };
 
 type Vehicle = {
@@ -330,6 +334,18 @@ export default function AdminBookingsPage() {
     return 'border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300';
   }
 
+  function getVerificationClasses(verificationStatus: string | undefined) {
+    if (verificationStatus === 'approved') {
+      return 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/40 dark:text-green-300';
+    }
+
+    if (verificationStatus === 'rejected') {
+      return 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300';
+    }
+
+    return 'border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300';
+  }
+
   const bookingStats = useMemo(() => {
     const pending = bookings.filter((booking) => booking.status === 'pending').length;
     const confirmed = bookings.filter(
@@ -527,6 +543,9 @@ export default function AdminBookingsPage() {
             const vehicleLabel = getVehicleLabel(booking.vehicleId);
             const composerOpen = openComposerId === booking.id;
             const isHighlighted = highlightedBookingId === booking.id;
+            const verificationStatus =
+              booking.customer?.verificationStatus ?? 'pending';
+            const isVerificationApproved = verificationStatus === 'approved';
 
             return (
               <article
@@ -558,6 +577,13 @@ export default function AdminBookingsPage() {
                         )}`}
                       >
                         {booking.status}
+                      </span>
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getVerificationClasses(
+                          verificationStatus
+                        )}`}
+                      >
+                        verification: {verificationStatus}
                       </span>
                       {isHighlighted ? (
                         <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
@@ -626,12 +652,22 @@ export default function AdminBookingsPage() {
                         {formatDateOnly(booking.returnAt)}
                       </p>
                     </div>
+
+                    {!isVerificationApproved ? (
+                      <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-300">
+                        Customer verification is not approved. Review customer documents before confirming this booking.
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex w-full flex-col gap-2 lg:w-56">
                     <button
                       onClick={() => updateStatus(booking.id, 'confirmed')}
-                      disabled={updatingId === booking.id || booking.status === 'confirmed'}
+                      disabled={
+                        updatingId === booking.id ||
+                        booking.status === 'confirmed' ||
+                        !isVerificationApproved
+                      }
                       className="rounded-xl border border-green-300 px-4 py-2 text-sm font-medium text-green-700 transition hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-950/30"
                     >
                       {updatingId === booking.id && booking.status !== 'confirmed'
