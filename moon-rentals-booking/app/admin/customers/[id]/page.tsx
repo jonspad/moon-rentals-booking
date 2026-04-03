@@ -5,6 +5,9 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
+import { addBooking, getBookings, recordBookingMessageLog } from '@/lib/bookingStore';
+import { getBlocks } from '@/lib/blockStore';
+import { sendBookingReceivedEmail } from '@/lib/email';
 import CustomerNotesForm from './CustomerNotesForm';
 import CustomerProfileForm from './CustomerProfileForm';
 
@@ -51,6 +54,62 @@ function getExtensionFromFile(file: File) {
     default:
       return '';
   }
+}
+
+function isOverlapping(
+  requestedStart: Date,
+  requestedEnd: Date,
+  existingStart: Date,
+  existingEnd: Date
+) {
+  return requestedStart < existingEnd && requestedEnd > existingStart;
+}
+
+function getVehicleDisplayName(vehicle: {
+  year: number;
+  make: string;
+  model: string;
+  color?: string | null;
+}) {
+  return `${vehicle.year} ${vehicle.make} ${vehicle.model}${
+    vehicle.color ? ` (${vehicle.color})` : ''
+  }`;
+}
+
+function calculateBillableDays(start: Date, end: Date) {
+  const diffMs = end.getTime() - start.getTime();
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  if (diffMs <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(diffMs / msPerDay);
+}
+
+function buildReceivedLogMessage(input: {
+  vehicle: string;
+  pickupAt: string;
+  returnAt: string;
+  bookingId: number;
+  ratePerDay?: number | null;
+  billableDays?: number | null;
+  estimatedTotal?: number | null;
+}) {
+  return [
+    `Your booking request for ${input.vehicle} has been received and is pending review.`,
+    `Booking ID: #${input.bookingId}`,
+    `Pickup: ${input.pickupAt}`,
+    `Return: ${input.returnAt}`,
+    input.ratePerDay != null ? `Rate: $${input.ratePerDay}/day` : '',
+    input.billableDays != null ? `Billable Days: ${input.billableDays}` : '',
+    input.estimatedTotal != null
+      ? `Estimated Total: $${input.estimatedTotal}`
+      : '',
+    `We’ll review the request and follow up as soon as possible.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function getCustomerVerificationStatus(
@@ -263,6 +322,174 @@ async function deleteCustomer(customerId: number) {
 
   revalidatePath('/admin/customers');
   redirect('/admin/customers');
+}
+
+async function createManualBooking(formData: FormData) {
+  'use server';
+
+  const customerId = Number(formData.get('customerId'));
+  const vehicleId = Number(formData.get('vehicleId'));
+  const pickupAtRaw = String(formData.get('pickupAt') || '').trim();
+  const returnAtRaw = String(formData.get('returnAt') || '').trim();
+
+  if (!Number.isInteger(customerId) || customerId <= 0) {
+    throw new Error('Valid customer is required.');
+  }
+
+  if (!Number.isInteger(vehicleId) || vehicleId <= 0) {
+    throw new Error('Valid vehicle is required.');
+  }
+
+  if (!pickupAtRaw || !returnAtRaw) {
+    throw new Error('Pickup and return dates are required.');
+  }
+
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+    },
+  });
+
+  if (!customer) {
+    throw new Error('Customer not found.');
+  }
+
+  const vehicle = await prisma.vehicle.findFirst({
+    where: {
+      id: vehicleId,
+      isActive: true,
+    },
+    select: {
+      id: true,
+      year: true,
+      make: true,
+      model: true,
+      color: true,
+      pricePerDay: true,
+      image: true,
+    },
+  });
+
+  if (!vehicle) {
+    throw new Error('Vehicle not found.');
+  }
+
+  const pickupDate = new Date(pickupAtRaw);
+  const returnDate = new Date(returnAtRaw);
+
+  if (
+    Number.isNaN(pickupDate.getTime()) ||
+    Number.isNaN(returnDate.getTime())
+  ) {
+    throw new Error('Invalid date format.');
+  }
+
+  if (returnDate <= pickupDate) {
+    throw new Error('Return date must be after pickup date.');
+  }
+
+  const blocks = await getBlocks();
+  const conflictingBlock = blocks.find((block) => {
+    if (block.vehicleId !== vehicleId) return false;
+
+    const blockStart = new Date(block.start);
+    const blockEnd = new Date(block.end);
+
+    if (
+      Number.isNaN(blockStart.getTime()) ||
+      Number.isNaN(blockEnd.getTime())
+    ) {
+      return false;
+    }
+
+    return isOverlapping(pickupDate, returnDate, blockStart, blockEnd);
+  });
+
+  if (conflictingBlock) {
+    throw new Error('This vehicle is blocked for the selected dates.');
+  }
+
+  const existingBookings = await getBookings();
+  const conflictingBooking = existingBookings.find((booking) => {
+    if (booking.vehicleId !== vehicleId) return false;
+    if (booking.status !== 'confirmed') return false;
+
+    const bookingStart = new Date(booking.pickupAt);
+    const bookingEnd = new Date(booking.returnAt);
+
+    if (
+      Number.isNaN(bookingStart.getTime()) ||
+      Number.isNaN(bookingEnd.getTime())
+    ) {
+      return false;
+    }
+
+    return isOverlapping(pickupDate, returnDate, bookingStart, bookingEnd);
+  });
+
+  if (conflictingBooking) {
+    throw new Error('This vehicle is already booked for the selected dates.');
+  }
+
+  const pickupAt = pickupDate.toISOString();
+  const returnAt = returnDate.toISOString();
+
+  const booking = await addBooking({
+    vehicleId,
+    customerId: customer.id,
+    pickupAt,
+    returnAt,
+    fullName: customer.fullName,
+    email: customer.email,
+    phone: customer.phone,
+    status: 'pending',
+  });
+
+  const vehicleName = getVehicleDisplayName(vehicle);
+  const billableDays = calculateBillableDays(pickupDate, returnDate);
+  const ratePerDay = vehicle.pricePerDay;
+  const estimatedTotal = billableDays * ratePerDay;
+
+  const guestSubject = 'Booking Request Received - Moon Rentals';
+  const guestBody = buildReceivedLogMessage({
+    vehicle: vehicleName,
+    pickupAt,
+    returnAt,
+    bookingId: booking.id,
+    ratePerDay,
+    billableDays,
+    estimatedTotal,
+  });
+
+  await sendBookingReceivedEmail({
+    to: customer.email,
+    name: customer.fullName,
+    vehicle: vehicleName,
+    pickupAt,
+    returnAt,
+    bookingId: booking.id,
+    vehicleImage: vehicle.image,
+    ratePerDay,
+    billableDays,
+    estimatedTotal,
+  });
+
+  await recordBookingMessageLog({
+    bookingId: booking.id,
+    kind: 'automated',
+    template: 'booking_received',
+    recipientEmail: customer.email,
+    subject: guestSubject,
+    body: guestBody,
+  });
+
+  revalidatePath('/admin/bookings');
+  revalidatePath(`/admin/customers/${customer.id}`);
+  redirect(`/admin/bookings?bookingId=${booking.id}`);
 }
 
 async function uploadCustomerDocument(formData: FormData) {
@@ -506,6 +733,21 @@ export default async function CustomerDetailPage({
     notFound();
   }
 
+  const vehicles = await prisma.vehicle.findMany({
+    where: {
+      isActive: true,
+    },
+    orderBy: [{ make: 'asc' }, { model: 'asc' }, { year: 'desc' }],
+    select: {
+      id: true,
+      year: true,
+      make: true,
+      model: true,
+      color: true,
+      pricePerDay: true,
+    },
+  });
+
   const verificationDocuments = customer.documents.map((document) => ({
     documentType: document.documentType,
     status: document.status,
@@ -666,6 +908,74 @@ export default async function CustomerDetailPage({
             Created {formatDateTime(customer.createdAt)}
           </div>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold">Create Manual Booking</h3>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+            Use this when a customer calls in or you need to create the booking on their behalf.
+          </p>
+        </div>
+
+        <form action={createManualBooking} className="grid gap-4 md:grid-cols-4">
+          <input type="hidden" name="customerId" value={customer.id} />
+
+          <div className="md:col-span-2">
+            <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Vehicle
+            </label>
+            <select
+              name="vehicleId"
+              required
+              defaultValue=""
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            >
+              <option value="" disabled>
+                Select a vehicle
+              </option>
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.year} {vehicle.make} {vehicle.model}
+                  {vehicle.color ? ` (${vehicle.color})` : ''} — ${vehicle.pricePerDay}/day
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Pickup
+            </label>
+            <input
+              type="datetime-local"
+              name="pickupAt"
+              required
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Return
+            </label>
+            <input
+              type="datetime-local"
+              name="returnAt"
+              required
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+            />
+          </div>
+
+          <div className="md:col-span-4 flex justify-end">
+            <button
+              type="submit"
+              className="rounded-xl border border-black bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 dark:border-white dark:bg-white dark:text-black"
+            >
+              Create Booking
+            </button>
+          </div>
+        </form>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

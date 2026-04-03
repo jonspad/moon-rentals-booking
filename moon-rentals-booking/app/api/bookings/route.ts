@@ -163,17 +163,17 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     const vehicleId = Number(body.vehicleId);
+    const customerId = Number(body.customerId);
     const pickupAt = body.pickupAt;
     const returnAt = body.returnAt;
     const fullName = (body.fullName || '').trim();
     const email = (body.email || '').trim();
     const phone = (body.phone || '').trim();
 
-    if (!vehicleId || !pickupAt || !returnAt || !fullName || !email || !phone) {
+    if (!vehicleId || !pickupAt || !returnAt) {
       return NextResponse.json(
         {
-          error:
-            'vehicleId, pickupAt, returnAt, fullName, email, and phone are required.',
+          error: 'vehicleId, pickupAt, and returnAt are required.',
         },
         { status: 400 }
       );
@@ -268,35 +268,83 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const normalizedName = fullName.trim();
-    const normalizedEmail = email.trim().toLowerCase();
-    const normalizedPhone = phone.trim();
+    let customer:
+      | {
+          id: number;
+          fullName: string;
+          email: string;
+          phone: string;
+        }
+      | null = null;
 
-    let customer = await prisma.customer.findUnique({
-      where: { email: normalizedEmail },
-    });
+    if (customerId) {
+      const existingCustomer = await prisma.customer.findUnique({
+        where: { id: customerId },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+        },
+      });
 
-    if (customer) {
-      const shouldUpdate =
-        customer.fullName !== normalizedName || customer.phone !== normalizedPhone;
+      if (!existingCustomer) {
+        return NextResponse.json(
+          { error: 'Customer not found.' },
+          { status: 404 }
+        );
+      }
 
-      if (shouldUpdate) {
-        customer = await prisma.customer.update({
-          where: { id: customer.id },
+      customer = existingCustomer;
+    } else {
+      if (!fullName || !email || !phone) {
+        return NextResponse.json(
+          {
+            error:
+              'vehicleId, pickupAt, returnAt, fullName, email, and phone are required.',
+          },
+          { status: 400 }
+        );
+      }
+
+      const normalizedName = fullName.trim();
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedPhone = phone.trim();
+
+      let existingCustomer = await prisma.customer.findUnique({
+        where: { email: normalizedEmail },
+      });
+
+      if (existingCustomer) {
+        const shouldUpdate =
+          existingCustomer.fullName !== normalizedName ||
+          existingCustomer.phone !== normalizedPhone;
+
+        if (shouldUpdate) {
+          existingCustomer = await prisma.customer.update({
+            where: { id: existingCustomer.id },
+            data: {
+              fullName: normalizedName,
+              phone: normalizedPhone,
+            },
+          });
+        }
+      } else {
+        existingCustomer = await prisma.customer.create({
           data: {
             fullName: normalizedName,
+            email: normalizedEmail,
             phone: normalizedPhone,
           },
         });
       }
-    } else {
-      customer = await prisma.customer.create({
-        data: {
-          fullName: normalizedName,
-          email: normalizedEmail,
-          phone: normalizedPhone,
-        },
-      });
+
+      customer = {
+        id: existingCustomer.id,
+        fullName: existingCustomer.fullName,
+        email: existingCustomer.email,
+        phone: existingCustomer.phone,
+      };
     }
 
     const booking = await addBooking({
@@ -304,9 +352,9 @@ export async function POST(req: NextRequest) {
       customerId: customer.id,
       pickupAt,
       returnAt,
-      fullName: normalizedName,
-      email: normalizedEmail,
-      phone: normalizedPhone,
+      fullName: customer.fullName,
+      email: customer.email,
+      phone: customer.phone,
       status: 'pending',
     });
 
@@ -328,8 +376,8 @@ export async function POST(req: NextRequest) {
     });
 
     await sendBookingReceivedEmail({
-      to: normalizedEmail,
-      name: normalizedName,
+      to: customer.email,
+      name: customer.fullName,
       vehicle: vehicleName,
       pickupAt,
       returnAt,
@@ -344,7 +392,7 @@ export async function POST(req: NextRequest) {
       bookingId: booking.id,
       kind: 'automated',
       template: 'booking_received',
-      recipientEmail: normalizedEmail,
+      recipientEmail: customer.email,
       subject: guestSubject,
       body: guestBody,
     });
@@ -353,9 +401,9 @@ export async function POST(req: NextRequest) {
       await sendAdminNewBookingEmail({
         to: adminNotificationEmail,
         bookingId: booking.id,
-        customerName: normalizedName,
-        customerEmail: normalizedEmail,
-        customerPhone: normalizedPhone,
+        customerName: customer.fullName,
+        customerEmail: customer.email,
+        customerPhone: customer.phone,
         vehicle: vehicleName,
         pickupAt,
         returnAt,
