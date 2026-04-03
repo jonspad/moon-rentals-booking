@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  createAdminSessionToken,
+  getAdminAuthCookieName,
+  getAdminSessionMaxAgeSeconds,
+} from '@/lib/adminAuth';
 
 export async function POST(req: NextRequest) {
   try {
     const { password } = await req.json();
 
     const adminPassword = process.env.ADMIN_PASSWORD;
-    const cookieName = process.env.ADMIN_AUTH_COOKIE || 'moon_admin_auth';
+    const cookieName = getAdminAuthCookieName();
 
     if (!adminPassword) {
       return NextResponse.json(
@@ -28,16 +33,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const token = await createAdminSessionToken();
     const res = NextResponse.json({ success: true });
 
     res.cookies.set({
       name: cookieName,
-      value: 'authenticated',
+      value: token,
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 8, // 8 hours
+      maxAge: getAdminSessionMaxAgeSeconds(),
     });
 
     return res;

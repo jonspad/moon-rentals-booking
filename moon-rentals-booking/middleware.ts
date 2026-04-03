@@ -1,26 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  getAdminAuthCookieName,
+  verifyAdminSessionToken,
+} from '@/lib/adminAuth';
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Only protect /admin routes
-  if (!pathname.startsWith('/admin')) {
+  if (!pathname.startsWith('/admin') && !pathname.startsWith('/api/admin')) {
     return NextResponse.next();
   }
 
-  // Allow the login page and login API
-  if (
-    pathname === '/admin/login' ||
-    pathname.startsWith('/api/admin/login')
-  ) {
+  if (pathname === '/admin/login' || pathname.startsWith('/api/admin/login')) {
     return NextResponse.next();
   }
 
-  const cookieName = process.env.ADMIN_AUTH_COOKIE || 'moon_admin_auth';
+  const cookieName = getAdminAuthCookieName();
   const authCookie = req.cookies.get(cookieName)?.value;
+  const isAuthenticated = await verifyAdminSessionToken(authCookie);
 
-  if (authCookie === 'authenticated') {
+  if (isAuthenticated) {
     return NextResponse.next();
+  }
+
+  if (pathname.startsWith('/api/admin')) {
+    return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   }
 
   const loginUrl = new URL('/admin/login', req.url);

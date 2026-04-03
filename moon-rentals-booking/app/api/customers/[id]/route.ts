@@ -81,20 +81,50 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       updateData.notes = notes.length > 0 ? notes : null;
     }
 
-    const updatedCustomer = await prisma.customer.update({
-      where: { id: customerId },
-      data: updateData,
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phone: true,
-        notes: true,
-        updatedAt: true,
-      },
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedCustomer = await tx.customer.update({
+        where: { id: customerId },
+        data: updateData,
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          notes: true,
+          updatedAt: true,
+        },
+      });
+
+      const bookingSnapshotUpdate: {
+        fullName?: string;
+        email?: string;
+        phone?: string;
+      } = {};
+
+      if (updateData.fullName !== undefined) {
+        bookingSnapshotUpdate.fullName = updateData.fullName;
+      }
+      if (updateData.email !== undefined) {
+        bookingSnapshotUpdate.email = updateData.email;
+      }
+      if (updateData.phone !== undefined) {
+        bookingSnapshotUpdate.phone = updateData.phone;
+      }
+
+      if (Object.keys(bookingSnapshotUpdate).length > 0) {
+        await tx.booking.updateMany({
+          where: {
+            customerId,
+            status: 'pending',
+          },
+          data: bookingSnapshotUpdate,
+        });
+      }
+
+      return updatedCustomer;
     });
 
-    return NextResponse.json({ customer: updatedCustomer });
+    return NextResponse.json({ customer: result });
   } catch (error: unknown) {
     console.error('PATCH /api/customers/[id] error:', error);
 

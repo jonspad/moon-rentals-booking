@@ -6,7 +6,6 @@ import {
   recordBookingMessageLog,
   updateBookingStatus,
 } from '@/lib/bookingStore';
-import { getBlocks } from '@/lib/blockStore';
 import { prisma } from '@/lib/prisma';
 import {
   sendAdminNewBookingEmail,
@@ -121,6 +120,59 @@ function buildRejectedLogMessage(input: {
     .join('\n');
 }
 
+async function findOverlappingConfirmedBooking(input: {
+  vehicleId: number;
+  pickupAt: Date;
+  returnAt: Date;
+  excludeBookingId?: number;
+}) {
+  return prisma.booking.findFirst({
+    where: {
+      vehicleId: input.vehicleId,
+      status: 'confirmed',
+      id:
+        input.excludeBookingId !== undefined
+          ? { not: input.excludeBookingId }
+          : undefined,
+      pickupAt: {
+        lt: input.returnAt,
+      },
+      returnAt: {
+        gt: input.pickupAt,
+      },
+    },
+    select: {
+      id: true,
+      pickupAt: true,
+      returnAt: true,
+    },
+  });
+}
+
+async function findOverlappingVehicleBlock(input: {
+  vehicleId: number;
+  pickupAt: Date;
+  returnAt: Date;
+}) {
+  return prisma.vehicleBlock.findFirst({
+    where: {
+      vehicleId: input.vehicleId,
+      startAt: {
+        lt: input.returnAt,
+      },
+      endAt: {
+        gt: input.pickupAt,
+      },
+    },
+    select: {
+      id: true,
+      blockGroupId: true,
+      startAt: true,
+      endAt: true,
+    },
+  });
+}
+
 export async function GET() {
   try {
     const bookings = await prisma.booking.findMany({
@@ -219,22 +271,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const blocks = await getBlocks();
-    const conflictingBlock = blocks.find((block) => {
-      if (block.vehicleId !== vehicleId) return false;
-
-      const blockStart = new Date(block.start);
-      const blockEnd = new Date(block.end);
-
-      if (
-        Number.isNaN(blockStart.getTime()) ||
-        Number.isNaN(blockEnd.getTime())
-      ) {
-        return false;
-      }
-
-      return isOverlapping(pickupDate, returnDate, blockStart, blockEnd);
-    });
+    const [conflictingBlock, conflictingBooking] = await Promise.all([
+      findOverlappingVehicleBlock({
+        vehicleId,
+        pickupAt: pickupDate,
+        returnAt: returnDate,
+      }),
+      findOverlappingConfirmedBooking({
+        vehicleId,
+        pickupAt: pickupDate,
+        returnAt: returnDate,
+      }),
+    ]);
 
     if (conflictingBlock) {
       return NextResponse.json(
@@ -242,24 +290,6 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
-
-    const existingBookings = await getBookings();
-    const conflictingBooking = existingBookings.find((booking) => {
-      if (booking.vehicleId !== vehicleId) return false;
-      if (booking.status !== 'confirmed') return false;
-
-      const bookingStart = new Date(booking.pickupAt);
-      const bookingEnd = new Date(booking.returnAt);
-
-      if (
-        Number.isNaN(bookingStart.getTime()) ||
-        Number.isNaN(bookingEnd.getTime())
-      ) {
-        return false;
-      }
-
-      return isOverlapping(pickupDate, returnDate, bookingStart, bookingEnd);
-    });
 
     if (conflictingBooking) {
       return NextResponse.json(
@@ -456,6 +486,50 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    const pickupDate = new Date(currentBooking.pickupAt);
+    const returnDate = new Date(currentBooking.returnAt);
+
+    if (
+      status === 'confirmed' &&
+      currentBooking.status !== 'confirmed' &&
+      !Number.isNaN(pickupDate.getTime()) &&
+      !Number.isNaN(returnDate.getTime())
+    ) {
+      const [conflictingBlock, conflictingBooking] = await Promise.all([
+        findOverlappingVehicleBlock({
+          vehicleId: currentBooking.vehicleId,
+          pickupAt: pickupDate,
+          returnAt: returnDate,
+        }),
+        findOverlappingConfirmedBooking({
+          vehicleId: currentBooking.vehicleId,
+          pickupAt: pickupDate,
+          returnAt: returnDate,
+          excludeBookingId: currentBooking.id,
+        }),
+      ]);
+
+      if (conflictingBlock) {
+        return NextResponse.json(
+          {
+            error:
+              'This booking cannot be confirmed because the vehicle is blocked for those dates.',
+          },
+          { status: 409 }
+        );
+      }
+
+      if (conflictingBooking) {
+        return NextResponse.json(
+          {
+            error:
+              'This booking cannot be confirmed because the vehicle is already booked for those dates.',
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const updatedBooking = await updateBookingStatus(id, status, {
       rejectionReason,
     });
@@ -485,12 +559,13 @@ export async function PATCH(req: NextRequest) {
       ? getVehicleDisplayName(vehicle)
       : `Vehicle ${updatedBooking.vehicleId}`;
 
-    const pickupDate = new Date(updatedBooking.pickupAt);
-    const returnDate = new Date(updatedBooking.returnAt);
+    const updatedPickupDate = new Date(updatedBooking.pickupAt);
+    const updatedReturnDate = new Date(updatedBooking.returnAt);
     const billableDays =
-      Number.isNaN(pickupDate.getTime()) || Number.isNaN(returnDate.getTime())
+      Number.isNaN(updatedPickupDate.getTime()) ||
+      Number.isNaN(updatedReturnDate.getTime())
         ? null
-        : calculateBillableDays(pickupDate, returnDate);
+        : calculateBillableDays(updatedPickupDate, updatedReturnDate);
 
     const ratePerDay = vehicle?.pricePerDay ?? null;
     const estimatedTotal =

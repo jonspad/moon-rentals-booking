@@ -85,6 +85,115 @@ async function resolveVehicleSelection(body: Record<string, unknown>) {
   };
 }
 
+
+type VehicleConflict = {
+  vehicleId: number;
+  label: string;
+};
+
+async function findConflictingBookings(input: {
+  vehicleIds: number[];
+  startAt: Date;
+  endAt: Date;
+}) {
+  if (input.vehicleIds.length === 0) {
+    return [] as VehicleConflict[];
+  }
+
+  const conflicts = await prisma.booking.findMany({
+    where: {
+      vehicleId: {
+        in: input.vehicleIds,
+      },
+      status: 'confirmed',
+      pickupAt: {
+        lt: input.endAt,
+      },
+      returnAt: {
+        gt: input.startAt,
+      },
+    },
+    select: {
+      vehicleId: true,
+      vehicle: {
+        select: {
+          year: true,
+          make: true,
+          model: true,
+        },
+      },
+    },
+  });
+
+  return Array.from(
+    new Map(
+      conflicts.map((conflict) => [
+        conflict.vehicleId,
+        {
+          vehicleId: conflict.vehicleId,
+          label: toVehicleLabel(conflict.vehicle),
+        },
+      ])
+    ).values()
+  );
+}
+
+async function findConflictingBlocks(input: {
+  vehicleIds: number[];
+  startAt: Date;
+  endAt: Date;
+  excludeBlockGroupId?: number;
+}) {
+  if (input.vehicleIds.length === 0) {
+    return [] as VehicleConflict[];
+  }
+
+  const conflicts = await prisma.vehicleBlock.findMany({
+    where: {
+      vehicleId: {
+        in: input.vehicleIds,
+      },
+      blockGroupId:
+        input.excludeBlockGroupId !== undefined
+          ? { not: input.excludeBlockGroupId }
+          : undefined,
+      startAt: {
+        lt: input.endAt,
+      },
+      endAt: {
+        gt: input.startAt,
+      },
+    },
+    select: {
+      vehicleId: true,
+      vehicle: {
+        select: {
+          year: true,
+          make: true,
+          model: true,
+        },
+      },
+    },
+  });
+
+  return Array.from(
+    new Map(
+      conflicts.map((conflict) => [
+        conflict.vehicleId,
+        {
+          vehicleId: conflict.vehicleId,
+          label: toVehicleLabel(conflict.vehicle),
+        },
+      ])
+    ).values()
+  );
+}
+
+function buildConflictMessage(prefix: string, conflicts: VehicleConflict[]) {
+  const labels = conflicts.map((conflict) => conflict.label).sort((a, b) => a.localeCompare(b));
+  return `${prefix}: ${labels.join(', ')}.`;
+}
+
 function buildGroupedBlocks(
   groupedBlocks: Array<{
     id: number;
@@ -331,6 +440,44 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const [bookingConflicts, blockConflicts] = await Promise.all([
+        findConflictingBookings({
+          vehicleIds: newVehicleIds,
+          startAt: existingGroup.startAt,
+          endAt: existingGroup.endAt,
+        }),
+        findConflictingBlocks({
+          vehicleIds: newVehicleIds,
+          startAt: existingGroup.startAt,
+          endAt: existingGroup.endAt,
+          excludeBlockGroupId: existingGroup.id,
+        }),
+      ]);
+
+      if (bookingConflicts.length > 0) {
+        return NextResponse.json(
+          {
+            error: buildConflictMessage(
+              'These vehicles already have confirmed bookings during the selected dates',
+              bookingConflicts
+            ),
+          },
+          { status: 409 }
+        );
+      }
+
+      if (blockConflicts.length > 0) {
+        return NextResponse.json(
+          {
+            error: buildConflictMessage(
+              'These vehicles are already blocked during the selected dates',
+              blockConflicts
+            ),
+          },
+          { status: 409 }
+        );
+      }
+
       await prisma.vehicleBlock.createMany({
         data: newVehicleIds.map((vehicleId: number) => ({
           vehicleId,
@@ -394,6 +541,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'End date must be after start date.' },
         { status: 400 }
+      );
+    }
+
+    const [bookingConflicts, blockConflicts] = await Promise.all([
+      findConflictingBookings({
+        vehicleIds: uniqueVehicleIds,
+        startAt: startDate,
+        endAt: endDate,
+      }),
+      findConflictingBlocks({
+        vehicleIds: uniqueVehicleIds,
+        startAt: startDate,
+        endAt: endDate,
+      }),
+    ]);
+
+    if (bookingConflicts.length > 0) {
+      return NextResponse.json(
+        {
+          error: buildConflictMessage(
+            'These vehicles already have confirmed bookings during the selected dates',
+            bookingConflicts
+          ),
+        },
+        { status: 409 }
+      );
+    }
+
+    if (blockConflicts.length > 0) {
+      return NextResponse.json(
+        {
+          error: buildConflictMessage(
+            'These vehicles are already blocked during the selected dates',
+            blockConflicts
+          ),
+        },
+        { status: 409 }
       );
     }
 
