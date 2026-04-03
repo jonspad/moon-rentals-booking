@@ -282,26 +282,43 @@ export default async function AdminPage() {
                         className="border-b border-gray-100 last:border-0 dark:border-gray-900"
                       >
                         <td className="px-3 py-4">
-                          <div className="font-medium text-gray-900 dark:text-white">
-                            #{booking.id}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {formatDateTime(booking.createdAt)}
-                          </div>
+                          <Link
+                            href="/admin/bookings"
+                            className="block rounded-lg transition hover:bg-gray-50 hover:underline dark:hover:bg-gray-900/40"
+                          >
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              #{booking.id}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {formatDateTime(booking.createdAt)}
+                            </div>
+                          </Link>
                         </td>
 
                         <td className="px-3 py-4">
-                          <div className="font-medium text-gray-900 dark:text-white">
-                            {booking.fullName}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {booking.email}
-                          </div>
+                          <Link
+                            href={`/admin/customers?email=${encodeURIComponent(
+                              booking.email
+                            )}`}
+                            className="block rounded-lg transition hover:bg-gray-50 hover:underline dark:hover:bg-gray-900/40"
+                          >
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {booking.fullName}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {booking.email}
+                            </div>
+                          </Link>
                         </td>
 
-                        <td className="px-3 py-4 text-gray-700 dark:text-gray-200">
-                          {vehicleMap.get(booking.vehicleId) ??
-                            `Vehicle ${booking.vehicleId}`}
+                        <td className="px-3 py-4">
+                          <Link
+                            href="/admin/vehicles"
+                            className="text-gray-700 transition hover:underline dark:text-gray-200"
+                          >
+                            {vehicleMap.get(booking.vehicleId) ??
+                              `Vehicle ${booking.vehicleId}`}
+                          </Link>
                         </td>
 
                         <td className="px-3 py-4 text-gray-700 dark:text-gray-200">
