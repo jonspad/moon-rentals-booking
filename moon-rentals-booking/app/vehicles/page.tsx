@@ -39,7 +39,7 @@ export default function VehiclesPage() {
       }
     }
 
-    loadVehicles();
+    void loadVehicles();
   }, []);
 
   const grouped = useMemo(() => {
@@ -105,13 +105,26 @@ export default function VehiclesPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search make, model, category, or keyword (ex: Ford, SUV, Tesla)"
-            className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 text-base text-black outline-none transition focus:border-black focus:bg-white dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:border-white"
+            style={{
+              color: 'white',
+              WebkitTextFillColor: 'white',
+              caretColor: 'white',
+              backgroundColor: '#111827',
+            }}
+            className="w-full rounded-2xl border border-gray-200 px-5 py-4 text-base placeholder:text-gray-400 outline-none transition focus:border-white focus:ring-2 focus:ring-white dark:border-gray-700"
           />
         </label>
 
         <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-          Showing <span className="font-semibold text-gray-900 dark:text-white">{filteredVehicles.length}</span> of{' '}
-          <span className="font-semibold text-gray-900 dark:text-white">{grouped.length}</span> vehicle groups
+          Showing{' '}
+          <span className="font-semibold text-gray-900 dark:text-white">
+            {filteredVehicles.length}
+          </span>{' '}
+          of{' '}
+          <span className="font-semibold text-gray-900 dark:text-white">
+            {grouped.length}
+          </span>{' '}
+          vehicle groups
         </div>
       </section>
 
@@ -173,7 +186,9 @@ export default function VehiclesPage() {
                   <div className="text-sm text-gray-500 dark:text-gray-400">Starting from</div>
                   <div className="text-3xl font-bold tracking-tight text-black dark:text-white">
                     ${v.pricePerDay}
-                    <span className="ml-1 text-base font-medium text-gray-500 dark:text-gray-400">/day</span>
+                    <span className="ml-1 text-base font-medium text-gray-500 dark:text-gray-400">
+                      /day
+                    </span>
                   </div>
                 </div>
               </div>
