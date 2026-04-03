@@ -36,20 +36,22 @@ model Vehicle {
 }
 
 model Customer {
-  id                 Int                @id @default(autoincrement())
-  fullName           String
-  email              String             @unique
-  phone              String
-  notes              String?
-  verificationStatus String             @default("unverified")
-  verifiedAt         DateTime?
-  bookings           Booking[]
-  documents          CustomerDocument[]
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  id                       Int                @id @default(autoincrement())
+  fullName                 String
+  email                    String             @unique
+  phone                    String
+  notes                    String?
+  verificationStatus       String             @default("unverified")
+  manualVerificationStatus String?
+  verifiedAt               DateTime?
+  bookings                 Booking[]
+  documents                CustomerDocument[]
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
 
   @@index([fullName])
   @@index([verificationStatus])
+  @@index([manualVerificationStatus])
 }
 
 model Booking {

@@ -25,7 +25,9 @@ function getStatusClasses(status: string) {
   }
 }
 
-function getMetricCardClasses(tone: 'neutral' | 'approved' | 'pending' | 'rejected' | 'unverified') {
+function getMetricCardClasses(
+  tone: 'neutral' | 'approved' | 'pending' | 'rejected' | 'unverified'
+) {
   switch (tone) {
     case 'approved':
       return 'border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30';
@@ -127,7 +129,10 @@ export default async function AdminCustomersPage({
         <MetricCard label="Unverified" value={unverified} tone="unverified" />
       </div>
 
-      <form method="GET" className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+      <form
+        method="GET"
+        className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+      >
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_140px]">
           <input
             type="text"
@@ -172,19 +177,34 @@ export default async function AdminCustomersPage({
           <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
             <thead className="bg-gray-50 dark:bg-gray-900/60">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Email</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Phone</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Bookings</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Status</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Created</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500">
+                  Name
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500">
+                  Email
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500">
+                  Phone
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500">
+                  Bookings
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500">
+                  Created
+                </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
               {customers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-gray-500 dark:text-gray-400">
+                  <td
+                    colSpan={6}
+                    className="px-4 py-10 text-center text-gray-500 dark:text-gray-400"
+                  >
                     No customers matched your search.
                   </td>
                 </tr>
@@ -214,7 +234,9 @@ export default async function AdminCustomersPage({
                         {customer.verificationStatus}
                       </span>
                     </td>
-                    <td className="px-4 py-4">{formatDate(customer.createdAt)}</td>
+                    <td className="px-4 py-4">
+                      {formatDate(customer.createdAt)}
+                    </td>
                   </tr>
                 ))
               )}

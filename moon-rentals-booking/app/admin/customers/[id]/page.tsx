@@ -79,6 +79,27 @@ function getCustomerVerificationStatus(
 }
 
 async function syncCustomerVerification(customerId: number) {
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: {
+      manualVerificationStatus: true,
+    },
+  });
+
+  if (customer?.manualVerificationStatus) {
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        verificationStatus: customer.manualVerificationStatus,
+        verifiedAt:
+          customer.manualVerificationStatus === 'approved'
+            ? new Date()
+            : null,
+      },
+    });
+    return;
+  }
+
   const customerDocuments = await prisma.customerDocument.findMany({
     where: { customerId },
     select: {
@@ -127,6 +148,41 @@ function formatDateTime(value: Date | string) {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+async function setManualStatus(
+  customerId: number,
+  status: 'approved' | 'rejected' | 'pending'
+) {
+  'use server';
+
+  await prisma.customer.update({
+    where: { id: customerId },
+    data: {
+      manualVerificationStatus: status,
+      verificationStatus: status,
+      verifiedAt: status === 'approved' ? new Date() : null,
+    },
+  });
+
+  revalidatePath('/admin/customers');
+  revalidatePath(`/admin/customers/${customerId}`);
+}
+
+async function clearManualStatus(customerId: number) {
+  'use server';
+
+  await prisma.customer.update({
+    where: { id: customerId },
+    data: {
+      manualVerificationStatus: null,
+    },
+  });
+
+  await syncCustomerVerification(customerId);
+
+  revalidatePath('/admin/customers');
+  revalidatePath(`/admin/customers/${customerId}`);
 }
 
 async function uploadCustomerDocument(formData: FormData) {
@@ -403,6 +459,55 @@ export default async function CustomerDetailPage({
               {customer.verificationStatus}
             </span>
           </div>
+
+          <div className="mb-3 flex flex-wrap gap-2">
+            <form action={setManualStatus.bind(null, customer.id, 'approved')}>
+              <button
+                type="submit"
+                className="rounded-xl border border-green-300 px-3 py-1 text-xs font-medium text-green-700 transition hover:bg-green-50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-950/30"
+              >
+                Approve
+              </button>
+            </form>
+
+            <form action={setManualStatus.bind(null, customer.id, 'rejected')}>
+              <button
+                type="submit"
+                className="rounded-xl border border-red-300 px-3 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/30"
+              >
+                Reject
+              </button>
+            </form>
+
+            <form action={setManualStatus.bind(null, customer.id, 'pending')}>
+              <button
+                type="submit"
+                className="rounded-xl border border-yellow-300 px-3 py-1 text-xs font-medium text-yellow-700 transition hover:bg-yellow-50 dark:border-yellow-800 dark:text-yellow-300 dark:hover:bg-yellow-950/30"
+              >
+                Needs Review
+              </button>
+            </form>
+
+            <form action={clearManualStatus.bind(null, customer.id)}>
+              <button
+                type="submit"
+                className="rounded-xl border border-gray-300 px-3 py-1 text-xs font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+              >
+                Auto
+              </button>
+            </form>
+          </div>
+
+          {customer.manualVerificationStatus ? (
+            <div className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+              Manual override active: {customer.manualVerificationStatus}
+            </div>
+          ) : (
+            <div className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+              Status is currently driven by document approvals.
+            </div>
+          )}
+
           <div className="text-gray-500">
             Created {formatDateTime(customer.createdAt)}
           </div>
