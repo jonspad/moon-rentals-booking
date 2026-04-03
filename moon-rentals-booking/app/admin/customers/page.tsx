@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -118,6 +119,31 @@ function buildSortHref(params: {
   return qs ? `/admin/customers?${qs}` : '/admin/customers';
 }
 
+async function createCustomer(formData: FormData) {
+  'use server';
+
+  const fullName = String(formData.get('fullName') || '').trim();
+  const email = String(formData.get('email') || '')
+    .trim()
+    .toLowerCase();
+  const phone = String(formData.get('phone') || '').trim();
+
+  if (!fullName || !email || !phone) {
+    throw new Error('Full name, email, and phone are required.');
+  }
+
+  await prisma.customer.create({
+    data: {
+      fullName,
+      email,
+      phone,
+      verificationStatus: 'unverified',
+    },
+  });
+
+  revalidatePath('/admin/customers');
+}
+
 export default async function AdminCustomersPage({
   searchParams,
 }: AdminCustomersPageProps) {
@@ -219,6 +245,45 @@ export default async function AdminCustomersPage({
         <MetricCard label="Pending" value={pending} tone="pending" />
         <MetricCard label="Rejected" value={rejected} tone="rejected" />
         <MetricCard label="Unverified" value={unverified} tone="unverified" />
+      </div>
+
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <div className="mb-3">
+          <h3 className="text-lg font-semibold">Add Customer</h3>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+            Create a customer manually without waiting for a booking.
+          </p>
+        </div>
+
+        <form action={createCustomer} className="grid gap-3 md:grid-cols-4">
+          <input
+            type="text"
+            name="fullName"
+            placeholder="Full name"
+            required
+            className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
+          />
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            required
+            className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
+          />
+          <input
+            type="text"
+            name="phone"
+            placeholder="Phone"
+            required
+            className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
+          />
+          <button
+            type="submit"
+            className="rounded-xl border border-black bg-black px-4 py-3 text-sm font-medium text-white transition hover:opacity-90 dark:border-white dark:bg-white dark:text-black"
+          >
+            Add Customer
+          </button>
+        </form>
       </div>
 
       <form

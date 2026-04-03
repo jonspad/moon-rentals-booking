@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -211,6 +211,58 @@ async function clearManualStatus(customerId: number) {
 
   revalidatePath('/admin/customers');
   revalidatePath(`/admin/customers/${customerId}`);
+}
+
+async function deleteCustomer(customerId: number) {
+  'use server';
+
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    include: {
+      _count: {
+        select: {
+          bookings: true,
+          documents: true,
+        },
+      },
+      documents: {
+        select: {
+          id: true,
+          filePath: true,
+        },
+      },
+    },
+  });
+
+  if (!customer) {
+    throw new Error('Customer not found.');
+  }
+
+  if (customer._count.bookings > 0) {
+    throw new Error('Cannot delete a customer that has bookings.');
+  }
+
+  for (const document of customer.documents) {
+    if (document.filePath) {
+      const fullPath = path.join(process.cwd(), 'public', document.filePath);
+      try {
+        await unlink(fullPath);
+      } catch (error) {
+        console.warn('Failed to delete customer document from disk:', error);
+      }
+    }
+  }
+
+  await prisma.customerDocument.deleteMany({
+    where: { customerId },
+  });
+
+  await prisma.customer.delete({
+    where: { id: customerId },
+  });
+
+  revalidatePath('/admin/customers');
+  redirect('/admin/customers');
 }
 
 async function uploadCustomerDocument(formData: FormData) {
@@ -468,6 +520,8 @@ export default async function CustomerDetailPage({
     'insurance'
   );
 
+  const canDeleteCustomer = customer._count.bookings === 0;
+
   return (
     <section className="mt-8 space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -576,6 +630,16 @@ export default async function CustomerDetailPage({
                 Auto
               </button>
             </form>
+
+            <form action={deleteCustomer.bind(null, customer.id)}>
+              <button
+                type="submit"
+                disabled={!canDeleteCustomer}
+                className="rounded-xl border border-red-300 px-3 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/30"
+              >
+                Delete Customer
+              </button>
+            </form>
           </div>
 
           {customer.manualVerificationStatus ? (
@@ -585,6 +649,16 @@ export default async function CustomerDetailPage({
           ) : (
             <div className="mb-2 text-xs text-gray-500 dark:text-gray-400">
               Status is currently driven by document approvals.
+            </div>
+          )}
+
+          {!canDeleteCustomer ? (
+            <div className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+              Customers with bookings cannot be deleted.
+            </div>
+          ) : (
+            <div className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+              This customer can be deleted because no bookings are attached.
             </div>
           )}
 
