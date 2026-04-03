@@ -53,6 +53,9 @@ export async function PATCH(
     if ('pricePerDay' in body) data.pricePerDay = parseOptionalInt(body.pricePerDay);
     if ('image' in body) data.image = normalizeString(body.image);
     if ('description' in body) data.description = normalizeString(body.description);
+    if ('internalNotes' in body) {
+      data.internalNotes = optionalString(body.internalNotes);
+    }
     if ('isActive' in body) data.isActive = Boolean(body.isActive);
 
     if (typeof data.slug === 'string' && data.slug.length > 0) {

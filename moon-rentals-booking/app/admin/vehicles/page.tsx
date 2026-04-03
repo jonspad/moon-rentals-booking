@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 type Vehicle = {
@@ -19,6 +19,7 @@ type Vehicle = {
   pricePerDay: number;
   image: string;
   description: string;
+  internalNotes: string | null;
   isActive: boolean;
 };
 
@@ -37,6 +38,7 @@ type VehicleFormState = {
   pricePerDay: string;
   image: string;
   description: string;
+  internalNotes: string;
   isActive: boolean;
 };
 
@@ -57,6 +59,7 @@ const initialForm: VehicleFormState = {
   pricePerDay: '',
   image: '',
   description: '',
+  internalNotes: '',
   isActive: true,
 };
 
@@ -127,7 +130,7 @@ export default function AdminVehiclesPage() {
   }
 
   useEffect(() => {
-    refreshVehicles();
+    void refreshVehicles();
   }, []);
 
   useEffect(() => {
@@ -199,6 +202,7 @@ export default function AdminVehiclesPage() {
         vehicle.color,
         vehicle.transmission,
         vehicle.description,
+        vehicle.internalNotes ?? '',
       ]
         .join(' ')
         .toLowerCase();
@@ -277,6 +281,7 @@ export default function AdminVehiclesPage() {
       pricePerDay: String(vehicle.pricePerDay),
       image: vehicle.image,
       description: vehicle.description,
+      internalNotes: vehicle.internalNotes ?? '',
       isActive: vehicle.isActive,
     });
 
@@ -345,7 +350,7 @@ export default function AdminVehiclesPage() {
     }
   }
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     setError('');
@@ -370,11 +375,14 @@ export default function AdminVehiclesPage() {
         pricePerDay: form.pricePerDay,
         image: form.image.trim(),
         description: form.description.trim(),
+        internalNotes: form.internalNotes.trim(),
         isActive: form.isActive,
       };
 
       const url =
-        editingId === null ? '/api/admin/vehicles' : `/api/admin/vehicles/${editingId}`;
+        editingId === null
+          ? '/api/admin/vehicles'
+          : `/api/admin/vehicles/${editingId}`;
       const method = editingId === null ? 'POST' : 'PATCH';
 
       const res = await fetch(url, {
@@ -490,7 +498,8 @@ export default function AdminVehiclesPage() {
       <div>
         <h2 className="text-2xl font-bold">Manage Vehicles</h2>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-          Add inventory, edit details, and quickly search or filter the current fleet.
+          Add inventory, edit details, and quickly search or filter the current
+          fleet.
         </p>
       </div>
 
@@ -509,7 +518,9 @@ export default function AdminVehiclesPage() {
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total vehicles</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Total vehicles
+          </p>
           <p className="mt-2 text-3xl font-bold">{inventoryStats.total}</p>
         </div>
 
@@ -526,7 +537,9 @@ export default function AdminVehiclesPage() {
         </div>
 
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm dark:border-blue-900 dark:bg-blue-950/30">
-          <p className="text-sm text-blue-700 dark:text-blue-300">Avg daily rate</p>
+          <p className="text-sm text-blue-700 dark:text-blue-300">
+            Avg daily rate
+          </p>
           <p className="mt-2 text-3xl font-bold text-blue-800 dark:text-blue-200">
             {formatMoney(inventoryStats.avgRate)}
           </p>
@@ -538,7 +551,8 @@ export default function AdminVehiclesPage() {
           <div>
             <h3 className="text-lg font-semibold">Vehicle tools</h3>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-              Search the fleet, focus a specific vehicle, or open the form only when needed.
+              Search the fleet, focus a specific vehicle, or open the form only
+              when needed.
             </p>
           </div>
 
@@ -575,7 +589,9 @@ export default function AdminVehiclesPage() {
             <form onSubmit={handleSubmit} className="mt-5 space-y-5">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-medium">Group mode</label>
+                  <label className="mb-2 block text-sm font-medium">
+                    Group mode
+                  </label>
                   <div className="flex gap-3">
                     <button
                       type="button"
@@ -603,7 +619,9 @@ export default function AdminVehiclesPage() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium">Group ID</label>
+                  <label className="mb-2 block text-sm font-medium">
+                    Group ID
+                  </label>
                   {groupMode === 'existing' ? (
                     <select
                       value={selectedGroupId}
@@ -677,7 +695,9 @@ export default function AdminVehiclesPage() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium">Category</label>
+                  <label className="mb-2 block text-sm font-medium">
+                    Category
+                  </label>
                   <input
                     value={form.category}
                     onChange={(e) => updateForm('category', e.target.value)}
@@ -707,7 +727,9 @@ export default function AdminVehiclesPage() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium">Transmission</label>
+                  <label className="mb-2 block text-sm font-medium">
+                    Transmission
+                  </label>
                   <input
                     value={form.transmission}
                     onChange={(e) => updateForm('transmission', e.target.value)}
@@ -717,7 +739,9 @@ export default function AdminVehiclesPage() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium">Price / day</label>
+                  <label className="mb-2 block text-sm font-medium">
+                    Price / day
+                  </label>
                   <input
                     value={form.pricePerDay}
                     onChange={(e) => updateForm('pricePerDay', e.target.value)}
@@ -736,7 +760,9 @@ export default function AdminVehiclesPage() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium">License plate</label>
+                  <label className="mb-2 block text-sm font-medium">
+                    License plate
+                  </label>
                   <input
                     value={form.licensePlate}
                     onChange={(e) => updateForm('licensePlate', e.target.value)}
@@ -745,7 +771,9 @@ export default function AdminVehiclesPage() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-medium">Image path</label>
+                  <label className="mb-2 block text-sm font-medium">
+                    Image path
+                  </label>
                   <input
                     value={form.image}
                     onChange={(e) => updateForm('image', e.target.value)}
@@ -779,7 +807,9 @@ export default function AdminVehiclesPage() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-medium">Description</label>
+                  <label className="mb-2 block text-sm font-medium">
+                    Description
+                  </label>
                   <textarea
                     value={form.description}
                     onChange={(e) => updateForm('description', e.target.value)}
@@ -787,6 +817,23 @@ export default function AdminVehiclesPage() {
                     className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
                     required
                   />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-medium">
+                    Internal notes
+                  </label>
+                  <textarea
+                    value={form.internalNotes}
+                    onChange={(e) => updateForm('internalNotes', e.target.value)}
+                    rows={4}
+                    placeholder="Internal-only notes for admin use"
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  />
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    These notes are for admin use only and should not appear on
+                    the public site.
+                  </p>
                 </div>
 
                 <div className="md:col-span-2">
@@ -842,7 +889,7 @@ export default function AdminVehiclesPage() {
                   setShowAllVehicles(true);
                 }
               }}
-              placeholder="Search make, model, group, VIN, plate, category..."
+              placeholder="Search make, model, group, VIN, plate, category, notes..."
               className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
             />
           </div>
@@ -909,14 +956,15 @@ export default function AdminVehiclesPage() {
             </select>
           </div>
 
-          <div className="flex items-end gap-3 lg:col-span-3 flex-wrap">
+          <div className="flex flex-wrap items-end gap-3 lg:col-span-3">
             <button
+              type="button"
               onClick={() => {
                 setSearch('');
                 setStatusFilter('all');
                 setCategoryFilter('all');
                 setGroupFilter('all');
-                setShowAllVehicles(!focusedVehicleId ? true : false);
+                setShowAllVehicles(!focusedVehicleId);
               }}
               className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
             >
@@ -925,6 +973,7 @@ export default function AdminVehiclesPage() {
 
             {focusedVehicle ? (
               <button
+                type="button"
                 onClick={() => setShowAllVehicles((prev) => !prev)}
                 className="rounded-xl border border-blue-300 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
               >
@@ -933,7 +982,10 @@ export default function AdminVehiclesPage() {
             ) : null}
 
             <button
-              onClick={refreshVehicles}
+              type="button"
+              onClick={() => {
+                void refreshVehicles();
+              }}
               className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
             >
               Refresh inventory
@@ -970,7 +1022,9 @@ export default function AdminVehiclesPage() {
         <div className="space-y-4">
           {displayedVehicles.map((vehicle) => {
             const isFocused =
-              focusedVehicleId === vehicle.id && !showAllVehicles && !hasActiveFilters;
+              focusedVehicleId === vehicle.id &&
+              !showAllVehicles &&
+              !hasActiveFilters;
 
             return (
               <article
@@ -1082,11 +1136,23 @@ export default function AdminVehiclesPage() {
                       <p className="max-w-3xl text-sm text-gray-600 dark:text-gray-300">
                         {vehicle.description}
                       </p>
+
+                      {vehicle.internalNotes ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+                          <p className="font-semibold text-amber-800 dark:text-amber-200">
+                            Internal notes
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap text-amber-700 dark:text-amber-300">
+                            {vehicle.internalNotes}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
                   <div className="flex w-full flex-col gap-2 xl:w-56">
                     <button
+                      type="button"
                       onClick={() => fillForm(vehicle)}
                       className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
                     >
@@ -1094,14 +1160,20 @@ export default function AdminVehiclesPage() {
                     </button>
 
                     <button
-                      onClick={() => toggleVehicleActive(vehicle)}
+                      type="button"
+                      onClick={() => {
+                        void toggleVehicleActive(vehicle);
+                      }}
                       className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
                     >
                       {vehicle.isActive ? 'Disable Vehicle' : 'Enable Vehicle'}
                     </button>
 
                     <button
-                      onClick={() => handleDelete(vehicle)}
+                      type="button"
+                      onClick={() => {
+                        void handleDelete(vehicle);
+                      }}
                       disabled={deletingId === vehicle.id}
                       className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/30"
                     >

@@ -8,26 +8,27 @@ datasource db {
 }
 
 model Vehicle {
-  id           Int            @id @default(autoincrement())
-  groupId      String
-  slug         String         @unique
-  vin          String?
-  licensePlate String?
-  year         Int
-  make         String
-  model        String
-  category     String
-  color        String
-  seats        Int
-  transmission String
-  pricePerDay  Int
-  image        String
-  description  String
-  isActive     Boolean        @default(true)
-  bookings     Booking[]
-  blocks       VehicleBlock[]
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id            Int            @id @default(autoincrement())
+  groupId       String
+  slug          String         @unique
+  vin           String?
+  licensePlate  String?
+  year          Int
+  make          String
+  model         String
+  category      String
+  color         String
+  seats         Int
+  transmission  String
+  pricePerDay   Int
+  image         String
+  description   String
+  internalNotes String?
+  isActive      Boolean        @default(true)
+  bookings      Booking[]
+  blocks        VehicleBlock[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@index([groupId])
   @@index([category])

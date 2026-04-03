@@ -32,7 +32,12 @@ function buildSlug(year: string | number, make: string, model: string) {
 export async function GET() {
   try {
     const vehicles = await prisma.vehicle.findMany({
-      orderBy: [{ isActive: 'desc' }, { year: 'desc' }, { make: 'asc' }, { model: 'asc' }],
+      orderBy: [
+        { isActive: 'desc' },
+        { year: 'desc' },
+        { make: 'asc' },
+        { model: 'asc' },
+      ],
     });
 
     return NextResponse.json({ vehicles });
@@ -60,6 +65,7 @@ export async function POST(req: NextRequest) {
     const pricePerDay = parseRequiredInt(body.pricePerDay, 'Price per day');
     const image = normalizeString(body.image);
     const description = normalizeString(body.description);
+    const internalNotes = optionalString(body.internalNotes);
     const vin = optionalString(body.vin);
     const licensePlate = optionalString(body.licensePlate);
     const isActive = Boolean(body.isActive);
@@ -114,6 +120,7 @@ export async function POST(req: NextRequest) {
         pricePerDay,
         image,
         description,
+        internalNotes,
         isActive,
       },
     });
