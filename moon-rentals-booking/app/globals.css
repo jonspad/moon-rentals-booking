@@ -32,12 +32,17 @@ button {
   font: inherit;
 }
 
-input[type="datetime-local"],
+input,
+textarea,
 select {
+  color: inherit;
+  -webkit-text-fill-color: currentColor;
+}
+
+input[type="datetime-local"] {
   color-scheme: light;
 }
 
-.dark input[type="datetime-local"],
-.dark select {
+.dark input[type="datetime-local"] {
   color-scheme: dark;
 }
