@@ -2,6 +2,16 @@ import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+type BookingPricingFields = {
+  ratePerDay?: number | null;
+  billableDays?: number | null;
+  estimatedTotal?: number | null;
+  baseSubtotal?: number | null;
+  discountAmount?: number | null;
+  extraFeeAmount?: number | null;
+  finalPriceOverride?: number | null;
+};
+
 type BookingEmailBase = {
   to: string;
   name: string;
@@ -10,10 +20,7 @@ type BookingEmailBase = {
   returnAt: string;
   bookingId: number;
   vehicleImage?: string | null;
-  ratePerDay?: number | null;
-  billableDays?: number | null;
-  estimatedTotal?: number | null;
-};
+} & BookingPricingFields;
 
 type AdminBookingEmail = {
   to: string;
@@ -25,10 +32,7 @@ type AdminBookingEmail = {
   pickupAt: string;
   returnAt: string;
   vehicleImage?: string | null;
-  ratePerDay?: number | null;
-  billableDays?: number | null;
-  estimatedTotal?: number | null;
-};
+} & BookingPricingFields;
 
 type RejectedEmail = BookingEmailBase & {
   reason?: string | null;
@@ -171,6 +175,10 @@ function getSummaryTable({
   ratePerDay,
   billableDays,
   estimatedTotal,
+  baseSubtotal,
+  discountAmount,
+  extraFeeAmount,
+  finalPriceOverride,
   status,
   includeCustomer,
   customerName,
@@ -181,15 +189,12 @@ function getSummaryTable({
   vehicle: string;
   pickupAt: string;
   returnAt: string;
-  ratePerDay?: number | null;
-  billableDays?: number | null;
-  estimatedTotal?: number | null;
   status: string;
   includeCustomer?: boolean;
   customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
-}) {
+} & BookingPricingFields) {
   const rows = [
     getDetailRow('Booking ID', `<strong>#${bookingId}</strong>`),
     ...(includeCustomer && customerName
@@ -214,7 +219,17 @@ function getSummaryTable({
       'Billable Days',
       billableDays == null ? '—' : escapeHtml(String(billableDays))
     ),
-    getDetailRow('Estimated Total', escapeHtml(formatMoney(estimatedTotal))),
+    getDetailRow('Base Subtotal', escapeHtml(formatMoney(baseSubtotal ?? estimatedTotal))),
+    ...(discountAmount && discountAmount > 0
+      ? [getDetailRow('Discount', escapeHtml(`-${formatMoney(discountAmount)}`))]
+      : []),
+    ...(extraFeeAmount && extraFeeAmount > 0
+      ? [getDetailRow('Extra Fees', escapeHtml(formatMoney(extraFeeAmount)))]
+      : []),
+    ...(finalPriceOverride != null
+      ? [getDetailRow('Final Price Override', escapeHtml(formatMoney(finalPriceOverride)))]
+      : []),
+    getDetailRow('Final Total', `<strong>${escapeHtml(formatMoney(estimatedTotal))}</strong>`),
     getDetailRow('Status', getStatusBadge(status)),
   ].join('');
 
@@ -320,6 +335,10 @@ export async function sendBookingReceivedEmail({
   ratePerDay,
   billableDays,
   estimatedTotal,
+  baseSubtotal,
+  discountAmount,
+  extraFeeAmount,
+  finalPriceOverride,
 }: BookingEmailBase) {
   try {
     await resend.emails.send({
@@ -349,6 +368,10 @@ export async function sendBookingReceivedEmail({
             ratePerDay,
             billableDays,
             estimatedTotal,
+            baseSubtotal,
+            discountAmount,
+            extraFeeAmount,
+            finalPriceOverride,
             status: 'Pending approval',
           })}
           <div style="margin-top:26px; font-size:16px; line-height:1.8; color:#111827;">
@@ -377,6 +400,10 @@ export async function sendBookingApprovedEmail({
   ratePerDay,
   billableDays,
   estimatedTotal,
+  baseSubtotal,
+  discountAmount,
+  extraFeeAmount,
+  finalPriceOverride,
 }: BookingEmailBase) {
   try {
     await resend.emails.send({
@@ -405,6 +432,10 @@ export async function sendBookingApprovedEmail({
             ratePerDay,
             billableDays,
             estimatedTotal,
+            baseSubtotal,
+            discountAmount,
+            extraFeeAmount,
+            finalPriceOverride,
             status: 'Confirmed',
           })}
           <div style="margin-top:26px; font-size:16px; line-height:1.8; color:#111827;">
@@ -433,6 +464,10 @@ export async function sendBookingRejectedEmail({
   ratePerDay,
   billableDays,
   estimatedTotal,
+  baseSubtotal,
+  discountAmount,
+  extraFeeAmount,
+  finalPriceOverride,
   reason,
   mode,
 }: RejectedEmail) {
@@ -493,6 +528,10 @@ export async function sendBookingRejectedEmail({
             ratePerDay,
             billableDays,
             estimatedTotal,
+            baseSubtotal,
+            discountAmount,
+            extraFeeAmount,
+            finalPriceOverride,
             status: statusLabel,
           })}
           ${reasonBlock}
@@ -523,6 +562,10 @@ export async function sendAdminNewBookingEmail({
   ratePerDay,
   billableDays,
   estimatedTotal,
+  baseSubtotal,
+  discountAmount,
+  extraFeeAmount,
+  finalPriceOverride,
 }: AdminBookingEmail) {
   try {
     await resend.emails.send({
@@ -550,6 +593,10 @@ export async function sendAdminNewBookingEmail({
             ratePerDay,
             billableDays,
             estimatedTotal,
+            baseSubtotal,
+            discountAmount,
+            extraFeeAmount,
+            finalPriceOverride,
             status: 'Pending approval',
             includeCustomer: true,
             customerName,

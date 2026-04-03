@@ -70,6 +70,10 @@ model Booking {
   pricePerDaySnapshot     Int
   totalDaysSnapshot       Int
   totalPriceSnapshot      Int
+  discountAmount          Int                 @default(0)
+  extraFeeAmount          Int                 @default(0)
+  finalPriceOverride      Int?
+  pricingNote             String?
   rejectionReason         String?
   lastAdminMessageSubject String?
   lastAdminMessageBody    String?

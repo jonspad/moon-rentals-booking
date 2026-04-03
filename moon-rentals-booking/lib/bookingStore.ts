@@ -34,6 +34,10 @@ export type Booking = {
   pricePerDaySnapshot: number;
   totalDaysSnapshot: number;
   totalPriceSnapshot: number;
+  discountAmount: number;
+  extraFeeAmount: number;
+  finalPriceOverride: number | null;
+  pricingNote: string | null;
   rejectionReason: string | null;
   lastAdminMessageSubject: string | null;
   lastAdminMessageBody: string | null;
@@ -54,6 +58,10 @@ type BookingRecord = {
   pricePerDaySnapshot: number;
   totalDaysSnapshot: number;
   totalPriceSnapshot: number;
+  discountAmount: number;
+  extraFeeAmount: number;
+  finalPriceOverride: number | null;
+  pricingNote: string | null;
   rejectionReason: string | null;
   lastAdminMessageSubject: string | null;
   lastAdminMessageBody: string | null;
@@ -75,6 +83,10 @@ function mapBooking(booking: BookingRecord): Booking {
     pricePerDaySnapshot: booking.pricePerDaySnapshot,
     totalDaysSnapshot: booking.totalDaysSnapshot,
     totalPriceSnapshot: booking.totalPriceSnapshot,
+    discountAmount: booking.discountAmount,
+    extraFeeAmount: booking.extraFeeAmount,
+    finalPriceOverride: booking.finalPriceOverride,
+    pricingNote: booking.pricingNote,
     rejectionReason: booking.rejectionReason,
     lastAdminMessageSubject: booking.lastAdminMessageSubject,
     lastAdminMessageBody: booking.lastAdminMessageBody,
@@ -109,13 +121,29 @@ function mapBookingMessageLog(log: {
   };
 }
 
+export function getBookingComputedTotal(booking: {
+  totalPriceSnapshot: number;
+  discountAmount?: number | null;
+  extraFeeAmount?: number | null;
+  finalPriceOverride?: number | null;
+}) {
+  if (booking.finalPriceOverride != null) {
+    return booking.finalPriceOverride;
+  }
+
+  return Math.max(
+    0,
+    booking.totalPriceSnapshot - (booking.discountAmount ?? 0) + (booking.extraFeeAmount ?? 0)
+  );
+}
+
 export async function getBookings(): Promise<Booking[]> {
   try {
     const bookings = await prisma.booking.findMany({
       orderBy: { createdAt: 'desc' },
     });
 
-    return bookings.map(mapBooking);
+    return bookings.map((booking) => mapBooking(booking as BookingRecord));
   } catch (error) {
     console.error('Error reading bookings from database:', error);
     return [];
@@ -123,15 +151,23 @@ export async function getBookings(): Promise<Booking[]> {
 }
 
 export async function addBooking(
-  booking: Omit<
-    Booking,
-    | 'id'
-    | 'createdAt'
-    | 'rejectionReason'
-    | 'lastAdminMessageSubject'
-    | 'lastAdminMessageBody'
-    | 'lastAdminMessagedAt'
-  >
+  booking: {
+    vehicleId: number;
+    customerId: number;
+    pickupAt: string;
+    returnAt: string;
+    fullName: string;
+    email: string;
+    phone: string;
+    status: BookingStatus;
+    pricePerDaySnapshot: number;
+    totalDaysSnapshot: number;
+    totalPriceSnapshot: number;
+    discountAmount?: number;
+    extraFeeAmount?: number;
+    finalPriceOverride?: number | null;
+    pricingNote?: string | null;
+  }
 ): Promise<Booking> {
   const created = await prisma.booking.create({
     data: {
@@ -146,10 +182,14 @@ export async function addBooking(
       pricePerDaySnapshot: booking.pricePerDaySnapshot,
       totalDaysSnapshot: booking.totalDaysSnapshot,
       totalPriceSnapshot: booking.totalPriceSnapshot,
+      discountAmount: booking.discountAmount ?? 0,
+      extraFeeAmount: booking.extraFeeAmount ?? 0,
+      finalPriceOverride: booking.finalPriceOverride ?? null,
+      pricingNote: booking.pricingNote?.trim() || null,
     },
   });
 
-  return mapBooking(created);
+  return mapBooking(created as BookingRecord);
 }
 
 export async function updateBookingStatus(
@@ -171,9 +211,36 @@ export async function updateBookingStatus(
       },
     });
 
-    return mapBooking(updated);
+    return mapBooking(updated as BookingRecord);
   } catch (error) {
     console.error(`Error updating booking ${id}:`, error);
+    return null;
+  }
+}
+
+export async function updateBookingPricing(
+  id: number,
+  input: {
+    discountAmount: number;
+    extraFeeAmount: number;
+    finalPriceOverride?: number | null;
+    pricingNote?: string | null;
+  }
+): Promise<Booking | null> {
+  try {
+    const updated = await prisma.booking.update({
+      where: { id },
+      data: {
+        discountAmount: input.discountAmount,
+        extraFeeAmount: input.extraFeeAmount,
+        finalPriceOverride: input.finalPriceOverride ?? null,
+        pricingNote: input.pricingNote?.trim() || null,
+      },
+    });
+
+    return mapBooking(updated as BookingRecord);
+  } catch (error) {
+    console.error(`Error updating pricing for booking ${id}:`, error);
     return null;
   }
 }
@@ -193,7 +260,7 @@ export async function recordAdminMessage(
       },
     });
 
-    return mapBooking(updated);
+    return mapBooking(updated as BookingRecord);
   } catch (error) {
     console.error(`Error recording admin message for booking ${id}:`, error);
     return null;
@@ -267,7 +334,7 @@ export async function getBookingMessageLogById(
 
     return {
       ...mapBookingMessageLog(log),
-      booking: mapBooking(log.booking),
+      booking: mapBooking(log.booking as BookingRecord),
     };
   } catch (error) {
     console.error(`Error fetching booking message log ${id}:`, error);

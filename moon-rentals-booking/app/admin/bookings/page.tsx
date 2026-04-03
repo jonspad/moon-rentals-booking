@@ -30,6 +30,13 @@ type Booking = {
   email: string;
   phone: string;
   status: 'pending' | 'confirmed' | 'cancelled';
+  pricePerDaySnapshot: number;
+  totalDaysSnapshot: number;
+  totalPriceSnapshot: number;
+  discountAmount: number;
+  extraFeeAmount: number;
+  finalPriceOverride: number | null;
+  pricingNote: string | null;
   rejectionReason: string | null;
   lastAdminMessageSubject: string | null;
   lastAdminMessageBody: string | null;
@@ -96,6 +103,34 @@ function formatDateOnly(value: string) {
   });
 }
 
+function formatCurrency(value: number | null | undefined) {
+  if (value == null || Number.isNaN(value)) {
+    return '—';
+  }
+
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function getComputedFinalTotal(booking: {
+  totalPriceSnapshot: number;
+  discountAmount?: number | null;
+  extraFeeAmount?: number | null;
+  finalPriceOverride?: number | null;
+}) {
+  if (booking.finalPriceOverride != null) {
+    return booking.finalPriceOverride;
+  }
+
+  return Math.max(
+    0,
+    booking.totalPriceSnapshot - (booking.discountAmount ?? 0) + (booking.extraFeeAmount ?? 0)
+  );
+}
+
 function getMessageKindClasses(kind: BookingMessageLog['kind']) {
   if (kind === 'automated') {
     return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
@@ -138,6 +173,7 @@ export default function AdminBookingsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [messagingId, setMessagingId] = useState<number | null>(null);
   const [resendingLogId, setResendingLogId] = useState<number | null>(null);
+  const [savingPricingId, setSavingPricingId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [rejectionReasons, setRejectionReasons] = useState<Record<number, string>>(
@@ -153,6 +189,12 @@ export default function AdminBookingsPage() {
   const [resendRecipients, setResendRecipients] = useState<Record<number, string>>(
     {}
   );
+  const [discountInputs, setDiscountInputs] = useState<Record<number, string>>({});
+  const [extraFeeInputs, setExtraFeeInputs] = useState<Record<number, string>>({});
+  const [finalOverrideInputs, setFinalOverrideInputs] = useState<Record<number, string>>(
+    {}
+  );
+  const [pricingNotes, setPricingNotes] = useState<Record<number, string>>({});
   const [expandedMessageLogId, setExpandedMessageLogId] = useState<number | null>(
     null
   );
@@ -180,31 +222,26 @@ export default function AdminBookingsPage() {
 
     setRejectionReasons((prev) => {
       const next = { ...prev };
-
       for (const booking of nextBookings) {
         if (next[booking.id] === undefined) {
           next[booking.id] = booking.rejectionReason || '';
         }
       }
-
       return next;
     });
 
     setMessageRecipients((prev) => {
       const next = { ...prev };
-
       for (const booking of nextBookings) {
         if (next[booking.id] === undefined) {
           next[booking.id] = booking.email || '';
         }
       }
-
       return next;
     });
 
     setResendRecipients((prev) => {
       const next = { ...prev };
-
       for (const booking of nextBookings) {
         for (const log of booking.messageLogs || []) {
           if (next[log.id] === undefined) {
@@ -212,7 +249,47 @@ export default function AdminBookingsPage() {
           }
         }
       }
+      return next;
+    });
 
+    setDiscountInputs((prev) => {
+      const next = { ...prev };
+      for (const booking of nextBookings) {
+        if (next[booking.id] === undefined) {
+          next[booking.id] = String(booking.discountAmount ?? 0);
+        }
+      }
+      return next;
+    });
+
+    setExtraFeeInputs((prev) => {
+      const next = { ...prev };
+      for (const booking of nextBookings) {
+        if (next[booking.id] === undefined) {
+          next[booking.id] = String(booking.extraFeeAmount ?? 0);
+        }
+      }
+      return next;
+    });
+
+    setFinalOverrideInputs((prev) => {
+      const next = { ...prev };
+      for (const booking of nextBookings) {
+        if (next[booking.id] === undefined) {
+          next[booking.id] =
+            booking.finalPriceOverride == null ? '' : String(booking.finalPriceOverride);
+        }
+      }
+      return next;
+    });
+
+    setPricingNotes((prev) => {
+      const next = { ...prev };
+      for (const booking of nextBookings) {
+        if (next[booking.id] === undefined) {
+          next[booking.id] = booking.pricingNote || '';
+        }
+      }
       return next;
     });
   }
@@ -247,8 +324,7 @@ export default function AdminBookingsPage() {
   }, []);
 
   useEffect(() => {
-    if (!highlightedBookingId) return;
-    if (loading) return;
+    if (!highlightedBookingId || loading) return;
 
     const bookingExists = bookings.some((booking) => booking.id === highlightedBookingId);
 
@@ -266,12 +342,6 @@ export default function AdminBookingsPage() {
 
     return () => window.clearTimeout(timer);
   }, [highlightedBookingId, bookings, loading]);
-
-  useEffect(() => {
-    if (highlightedBookingId) {
-      setOpenComposerId(null);
-    }
-  }, [highlightedBookingId]);
 
   async function updateStatus(
     bookingId: number,
@@ -312,6 +382,59 @@ export default function AdminBookingsPage() {
       setError('Failed to update booking status.');
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function savePricing(bookingId: number) {
+    setSavingPricingId(bookingId);
+    setError('');
+    setMessage('');
+
+    try {
+      const discountAmount = Math.max(0, Number(discountInputs[bookingId] || 0));
+      const extraFeeAmount = Math.max(0, Number(extraFeeInputs[bookingId] || 0));
+      const finalOverrideRaw = (finalOverrideInputs[bookingId] || '').trim();
+      const finalPriceOverride = finalOverrideRaw === '' ? null : Number(finalOverrideRaw);
+
+      if (Number.isNaN(discountAmount) || Number.isNaN(extraFeeAmount)) {
+        setError('Discount and extra fee must be valid numbers.');
+        return;
+      }
+
+      if (finalPriceOverride != null && (Number.isNaN(finalPriceOverride) || finalPriceOverride < 0)) {
+        setError('Final price override must be blank or a valid non-negative number.');
+        return;
+      }
+
+      const res = await fetch('/api/bookings', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: bookingId,
+          discountAmount,
+          extraFeeAmount,
+          finalPriceOverride,
+          pricingNote: pricingNotes[bookingId] || '',
+        }),
+      });
+
+      const rawText = await res.text();
+      const data = rawText ? JSON.parse(rawText) : {};
+
+      if (!res.ok) {
+        setError(data.error || 'Failed to save pricing.');
+        return;
+      }
+
+      setMessage(`Pricing saved for booking #${bookingId}.`);
+      await loadBookings();
+    } catch (err) {
+      console.error('Failed to save pricing:', err);
+      setError('Failed to save pricing.');
+    } finally {
+      setSavingPricingId(null);
     }
   }
 
@@ -469,12 +592,8 @@ export default function AdminBookingsPage() {
 
   const bookingStats = useMemo(() => {
     const pending = bookings.filter((booking) => booking.status === 'pending').length;
-    const confirmed = bookings.filter(
-      (booking) => booking.status === 'confirmed'
-    ).length;
-    const cancelled = bookings.filter(
-      (booking) => booking.status === 'cancelled'
-    ).length;
+    const confirmed = bookings.filter((booking) => booking.status === 'confirmed').length;
+    const cancelled = bookings.filter((booking) => booking.status === 'cancelled').length;
 
     return {
       total: bookings.length,
@@ -511,15 +630,12 @@ export default function AdminBookingsPage() {
       if (sortBy === 'created-asc') {
         return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       }
-
       if (sortBy === 'pickup-asc') {
         return new Date(a.pickupAt).getTime() - new Date(b.pickupAt).getTime();
       }
-
       if (sortBy === 'return-asc') {
         return new Date(a.returnAt).getTime() - new Date(b.returnAt).getTime();
       }
-
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
@@ -531,8 +647,7 @@ export default function AdminBookingsPage() {
       <div>
         <h2 className="text-2xl font-bold">Bookings</h2>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-          Review customer booking requests, approve or decline them, search faster,
-          message guests, and view full communication history.
+          Review requests, manage guest communication, and now adjust final pricing before approval.
         </p>
       </div>
 
@@ -547,26 +662,17 @@ export default function AdminBookingsPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
           <p className="mt-2 text-3xl font-bold">{bookingStats.total}</p>
         </div>
-
         <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4 shadow-sm dark:border-yellow-900 dark:bg-yellow-950/30">
           <p className="text-sm text-yellow-700 dark:text-yellow-300">Pending</p>
-          <p className="mt-2 text-3xl font-bold text-yellow-800 dark:text-yellow-200">
-            {bookingStats.pending}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-yellow-800 dark:text-yellow-200">{bookingStats.pending}</p>
         </div>
-
         <div className="rounded-2xl border border-green-200 bg-green-50 p-4 shadow-sm dark:border-green-900 dark:bg-green-950/30">
           <p className="text-sm text-green-700 dark:text-green-300">Confirmed</p>
-          <p className="mt-2 text-3xl font-bold text-green-800 dark:text-green-200">
-            {bookingStats.confirmed}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-green-800 dark:text-green-200">{bookingStats.confirmed}</p>
         </div>
-
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm dark:border-red-900 dark:bg-red-950/30">
           <p className="text-sm text-red-700 dark:text-red-300">Cancelled</p>
-          <p className="mt-2 text-3xl font-bold text-red-800 dark:text-red-200">
-            {bookingStats.cancelled}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-red-800 dark:text-red-200">{bookingStats.cancelled}</p>
         </div>
       </div>
 
@@ -581,14 +687,11 @@ export default function AdminBookingsPage() {
               className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900"
             />
           </div>
-
           <div>
             <label className="mb-2 block text-sm font-medium">Status</label>
             <select
               value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value as 'all' | Booking['status'])
-              }
+              onChange={(e) => setStatusFilter(e.target.value as 'all' | Booking['status'])}
               className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900"
             >
               <option value="all">All statuses</option>
@@ -597,7 +700,6 @@ export default function AdminBookingsPage() {
               <option value="cancelled">Cancelled only</option>
             </select>
           </div>
-
           <div>
             <label className="mb-2 block text-sm font-medium">Sort by</label>
             <select
@@ -624,14 +726,12 @@ export default function AdminBookingsPage() {
           >
             Reset filters
           </button>
-
           <button
             onClick={refreshData}
             className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
           >
             Refresh
           </button>
-
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Showing {filteredBookings.length} of {bookings.length} bookings
           </p>
@@ -664,9 +764,17 @@ export default function AdminBookingsPage() {
             const vehicleLabel = getVehicleLabel(booking.vehicleId);
             const composerOpen = openComposerId === booking.id;
             const isHighlighted = highlightedBookingId === booking.id;
-            const verificationStatus =
-              booking.customer?.verificationStatus ?? 'pending';
+            const verificationStatus = booking.customer?.verificationStatus ?? 'pending';
             const isVerificationApproved = verificationStatus === 'approved';
+            const computedFinalTotal = getComputedFinalTotal(booking);
+            const previewFinalTotal = (() => {
+              const discount = Math.max(0, Number(discountInputs[booking.id] || 0));
+              const extraFee = Math.max(0, Number(extraFeeInputs[booking.id] || 0));
+              const overrideRaw = (finalOverrideInputs[booking.id] || '').trim();
+              const override = overrideRaw === '' ? null : Number(overrideRaw);
+              if (override != null && !Number.isNaN(override)) return override;
+              return Math.max(0, booking.totalPriceSnapshot - discount + extraFee);
+            })();
 
             return (
               <article
@@ -692,86 +800,32 @@ export default function AdminBookingsPage() {
                           {vehicleLabel}
                         </Link>
                       </h3>
-                      <span
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getStatusClasses(
-                          booking.status
-                        )}`}
-                      >
+                      <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getStatusClasses(booking.status)}`}>
                         {booking.status}
                       </span>
-                      <span
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getVerificationClasses(
-                          verificationStatus
-                        )}`}
-                      >
+                      <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getVerificationClasses(verificationStatus)}`}>
                         verification: {verificationStatus}
                       </span>
-                      {isHighlighted ? (
-                        <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
-                          Selected from calendar
-                        </span>
-                      ) : null}
                     </div>
 
                     <div className="grid gap-3 text-sm text-gray-700 dark:text-gray-300 md:grid-cols-2">
+                      <p><span className="font-semibold text-black dark:text-white">Booking ID:</span> #{booking.id}</p>
+                      <p><span className="font-semibold text-black dark:text-white">Created:</span> {formatDateTime(booking.createdAt)}</p>
                       <p>
-                        <span className="font-semibold text-black dark:text-white">
-                          Booking ID:
-                        </span>{' '}
-                        #{booking.id}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-black dark:text-white">
-                          Created:
-                        </span>{' '}
-                        {formatDateTime(booking.createdAt)}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-black dark:text-white">
-                          Customer:
-                        </span>{' '}
+                        <span className="font-semibold text-black dark:text-white">Customer:</span>{' '}
                         {booking.customerId ? (
-                          <Link
-                            href={`/admin/customers/${booking.customerId}`}
-                            className="text-blue-600 transition hover:underline dark:text-blue-400"
-                          >
+                          <Link href={`/admin/customers/${booking.customerId}`} className="text-blue-600 transition hover:underline dark:text-blue-400">
                             {booking.fullName}
                           </Link>
                         ) : (
-                          <span>{booking.fullName}</span>
+                          booking.fullName
                         )}
                       </p>
-                      <p>
-                        <span className="font-semibold text-black dark:text-white">
-                          Email:
-                        </span>{' '}
-                        {booking.email}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-black dark:text-white">
-                          Phone:
-                        </span>{' '}
-                        {booking.phone}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-black dark:text-white">
-                          Pickup:
-                        </span>{' '}
-                        {formatDateTime(booking.pickupAt)}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-black dark:text-white">
-                          Return:
-                        </span>{' '}
-                        {formatDateTime(booking.returnAt)}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-black dark:text-white">
-                          Rental dates:
-                        </span>{' '}
-                        {formatDateOnly(booking.pickupAt)} →{' '}
-                        {formatDateOnly(booking.returnAt)}
-                      </p>
+                      <p><span className="font-semibold text-black dark:text-white">Email:</span> {booking.email}</p>
+                      <p><span className="font-semibold text-black dark:text-white">Phone:</span> {booking.phone}</p>
+                      <p><span className="font-semibold text-black dark:text-white">Pickup:</span> {formatDateTime(booking.pickupAt)}</p>
+                      <p><span className="font-semibold text-black dark:text-white">Return:</span> {formatDateTime(booking.returnAt)}</p>
+                      <p><span className="font-semibold text-black dark:text-white">Rental dates:</span> {formatDateOnly(booking.pickupAt)} → {formatDateOnly(booking.returnAt)}</p>
                     </div>
 
                     {!isVerificationApproved ? (
@@ -784,47 +838,31 @@ export default function AdminBookingsPage() {
                   <div className="flex w-full flex-col gap-2 lg:w-56">
                     <button
                       onClick={() => updateStatus(booking.id, 'confirmed')}
-                      disabled={
-                        updatingId === booking.id ||
-                        booking.status === 'confirmed' ||
-                        !isVerificationApproved
-                      }
+                      disabled={updatingId === booking.id || booking.status === 'confirmed' || !isVerificationApproved}
                       className="rounded-xl border border-green-300 px-4 py-2 text-sm font-medium text-green-700 transition hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-950/30"
                     >
-                      {updatingId === booking.id && booking.status !== 'confirmed'
-                        ? 'Updating...'
-                        : 'Confirm'}
+                      {updatingId === booking.id && booking.status !== 'confirmed' ? 'Updating...' : 'Confirm'}
                     </button>
-
                     <button
                       onClick={() => updateStatus(booking.id, 'cancelled')}
                       disabled={updatingId === booking.id || booking.status === 'cancelled'}
                       className="rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/30"
                     >
-                      {updatingId === booking.id && booking.status !== 'cancelled'
-                        ? 'Updating...'
-                        : 'Cancel / Reject'}
+                      {updatingId === booking.id && booking.status !== 'cancelled' ? 'Updating...' : 'Cancel / Reject'}
                     </button>
-
                     <button
                       onClick={() => updateStatus(booking.id, 'pending')}
                       disabled={updatingId === booking.id || booking.status === 'pending'}
                       className="rounded-xl border border-yellow-300 px-4 py-2 text-sm font-medium text-yellow-700 transition hover:bg-yellow-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-yellow-800 dark:text-yellow-300 dark:hover:bg-yellow-950/30"
                     >
-                      {updatingId === booking.id && booking.status !== 'pending'
-                        ? 'Updating...'
-                        : 'Mark Pending'}
+                      {updatingId === booking.id && booking.status !== 'pending' ? 'Updating...' : 'Mark Pending'}
                     </button>
-
                     <button
-                      onClick={() =>
-                        setOpenComposerId((prev) => (prev === booking.id ? null : booking.id))
-                      }
+                      onClick={() => setOpenComposerId((prev) => (prev === booking.id ? null : booking.id))}
                       className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
                     >
                       {composerOpen ? 'Close Message' : 'Message Guest'}
                     </button>
-
                     <button
                       onClick={() => deleteBooking(booking.id)}
                       disabled={deletingId === booking.id}
@@ -837,190 +875,205 @@ export default function AdminBookingsPage() {
 
                 <div className="mt-5 grid gap-4 xl:grid-cols-2">
                   <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
-                    <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                      Rejection / cancellation message
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900 dark:text-white">Pricing</div>
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                          Snapshot pricing is preserved. Adjustments here let you set the final approved total.
+                        </p>
+                      </div>
+                      <div className="text-right text-xs text-gray-500 dark:text-gray-400">
+                        <div>Saved final</div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+                          {formatCurrency(computedFinalTotal)}
+                        </div>
+                      </div>
                     </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+                        <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Daily Rate</div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{formatCurrency(booking.pricePerDaySnapshot)}</div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+                        <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Billable Days</div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{booking.totalDaysSnapshot}</div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+                        <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Base Subtotal</div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{formatCurrency(booking.totalPriceSnapshot)}</div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+                        <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Preview Final Total</div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{formatCurrency(previewFinalTotal)}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Discount Amount</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={discountInputs[booking.id] ?? '0'}
+                          onChange={(e) => setDiscountInputs((prev) => ({ ...prev, [booking.id]: e.target.value }))}
+                          className={fieldClassName}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Extra Fee Amount</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={extraFeeInputs[booking.id] ?? '0'}
+                          onChange={(e) => setExtraFeeInputs((prev) => ({ ...prev, [booking.id]: e.target.value }))}
+                          className={fieldClassName}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Final Price Override</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={finalOverrideInputs[booking.id] ?? ''}
+                        onChange={(e) => setFinalOverrideInputs((prev) => ({ ...prev, [booking.id]: e.target.value }))}
+                        className={fieldClassName}
+                        placeholder="Leave blank to use subtotal - discount + fees"
+                      />
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Pricing Note</label>
+                      <textarea
+                        rows={3}
+                        value={pricingNotes[booking.id] ?? ''}
+                        onChange={(e) => setPricingNotes((prev) => ({ ...prev, [booking.id]: e.target.value }))}
+                        className={fieldClassName}
+                        placeholder="Example: waived delivery fee, repeat guest discount, manual weekend quote"
+                      />
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        Guest approval emails will use the saved final total.
+                      </div>
+                      <button
+                        onClick={() => savePricing(booking.id)}
+                        disabled={savingPricingId === booking.id}
+                        className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                      >
+                        {savingPricingId === booking.id ? 'Saving...' : 'Save Pricing'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-white">Rejection / cancellation message</div>
                     <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
                       This message will be included if you cancel or reject the booking.
                     </p>
-
                     <textarea
                       value={rejectionReasons[booking.id] ?? ''}
-                      onChange={(e) =>
-                        setRejectionReasons((prev) => ({
-                          ...prev,
-                          [booking.id]: e.target.value,
-                        }))
-                      }
+                      onChange={(e) => setRejectionReasons((prev) => ({ ...prev, [booking.id]: e.target.value }))}
                       rows={5}
                       className={fieldClassName}
                       placeholder="Example: We’re unable to approve this request because the vehicle is unavailable for the requested dates."
                     />
-
                     {booking.rejectionReason ? (
-                      <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                        Current saved message: {booking.rejectionReason}
-                      </div>
+                      <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Current saved message: {booking.rejectionReason}</div>
                     ) : null}
                   </div>
+                </div>
 
-                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                          Message History
-                        </div>
-                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                          Automated, manual, and resent messages for this booking.
-                        </p>
-                      </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {(booking.messageLogs || []).length} sent
-                      </div>
+                <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900 dark:text-white">Message History</div>
+                      <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Automated, manual, and resent messages for this booking.</p>
                     </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{(booking.messageLogs || []).length} sent</div>
+                  </div>
 
-                    <div className="mt-3 space-y-3">
-                      {(booking.messageLogs || []).length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-gray-300 px-3 py-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                          No messages have been logged yet.
-                        </div>
-                      ) : (
-                        (booking.messageLogs || []).map((log) => {
-                          const isExpanded = expandedMessageLogId === log.id;
-
-                          return (
-                            <div
-                              key={log.id}
-                              className="rounded-xl border border-gray-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900"
+                  <div className="mt-3 space-y-3">
+                    {(booking.messageLogs || []).length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-gray-300 px-3 py-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">No messages have been logged yet.</div>
+                    ) : (
+                      (booking.messageLogs || []).map((log) => {
+                        const isExpanded = expandedMessageLogId === log.id;
+                        return (
+                          <div key={log.id} className="rounded-xl border border-gray-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedMessageLogId((prev) => (prev === log.id ? null : log.id))}
+                              className="flex w-full items-start justify-between gap-3 text-left"
                             >
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedMessageLogId((prev) =>
-                                    prev === log.id ? null : log.id
-                                  )
-                                }
-                                className="flex w-full items-start justify-between gap-3 text-left"
-                              >
-                                <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span
-                                      className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${getMessageKindClasses(
-                                        log.kind
-                                      )}`}
-                                    >
-                                      {log.kind}
-                                    </span>
-                                    <span className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-700 dark:border-gray-700 dark:text-gray-300">
-                                      {getTemplateLabel(log.template)}
-                                    </span>
-                                  </div>
-
-                                  <div className="mt-2 text-sm font-medium text-gray-900 dark:text-white">
-                                    {log.subject}
-                                  </div>
-
-                                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                    {formatDateTime(log.sentAt)} • {log.recipientEmail}
-                                  </div>
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${getMessageKindClasses(log.kind)}`}>{log.kind}</span>
+                                  <span className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-700 dark:border-gray-700 dark:text-gray-300">{getTemplateLabel(log.template)}</span>
                                 </div>
+                                <div className="mt-2 text-sm font-medium text-gray-900 dark:text-white">{log.subject}</div>
+                                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{formatDateTime(log.sentAt)} • {log.recipientEmail}</div>
+                              </div>
+                              <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{isExpanded ? 'Hide' : 'Open'}</span>
+                            </button>
 
-                                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
-                                  {isExpanded ? 'Hide' : 'Open'}
-                                </span>
-                              </button>
-
-                              {isExpanded ? (
-                                <div className="mt-3 space-y-3">
-                                  <div className="whitespace-pre-wrap rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white">
-                                    {log.body}
-                                  </div>
-
-                                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px]">
-                                    <input
-                                      type="email"
-                                      value={resendRecipients[log.id] ?? ''}
-                                      onChange={(e) =>
-                                        setResendRecipients((prev) => ({
-                                          ...prev,
-                                          [log.id]: e.target.value,
-                                        }))
-                                      }
-                                      className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
-                                      placeholder="Resend to email"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        resendLoggedMessage(log.id, booking.id)
-                                      }
-                                      disabled={resendingLogId === log.id}
-                                      className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
-                                    >
-                                      {resendingLogId === log.id
-                                        ? 'Resending...'
-                                        : 'Resend'}
-                                    </button>
-                                  </div>
+                            {isExpanded ? (
+                              <div className="mt-3 space-y-3">
+                                <div className="whitespace-pre-wrap rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white">{log.body}</div>
+                                <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px]">
+                                  <input
+                                    type="email"
+                                    value={resendRecipients[log.id] ?? ''}
+                                    onChange={(e) => setResendRecipients((prev) => ({ ...prev, [log.id]: e.target.value }))}
+                                    className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
+                                    placeholder="Resend to email"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => resendLoggedMessage(log.id, booking.id)}
+                                    disabled={resendingLogId === log.id}
+                                    className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                                  >
+                                    {resendingLogId === log.id ? 'Resending...' : 'Resend'}
+                                  </button>
                                 </div>
-                              ) : null}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
 
                 {composerOpen ? (
                   <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
-                    <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                      Send message to guest
-                    </div>
-                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                      Use this for follow-up questions, requesting more info, or
-                      providing updates.
-                    </p>
-
+                    <div className="text-sm font-semibold text-gray-900 dark:text-white">Send message to guest</div>
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Use this for follow-up questions, requesting more info, or providing updates.</p>
                     <input
                       type="email"
                       value={messageRecipients[booking.id] ?? ''}
-                      onChange={(e) =>
-                        setMessageRecipients((prev) => ({
-                          ...prev,
-                          [booking.id]: e.target.value,
-                        }))
-                      }
+                      onChange={(e) => setMessageRecipients((prev) => ({ ...prev, [booking.id]: e.target.value }))}
                       className={fieldClassName}
                       placeholder="Send to email"
                     />
-
                     <input
                       type="text"
                       value={messageSubjects[booking.id] ?? ''}
-                      onChange={(e) =>
-                        setMessageSubjects((prev) => ({
-                          ...prev,
-                          [booking.id]: e.target.value,
-                        }))
-                      }
+                      onChange={(e) => setMessageSubjects((prev) => ({ ...prev, [booking.id]: e.target.value }))}
                       className={fieldClassName}
                       placeholder="Subject"
                     />
-
                     <textarea
                       value={messageBodies[booking.id] ?? ''}
-                      onChange={(e) =>
-                        setMessageBodies((prev) => ({
-                          ...prev,
-                          [booking.id]: e.target.value,
-                        }))
-                      }
+                      onChange={(e) => setMessageBodies((prev) => ({ ...prev, [booking.id]: e.target.value }))}
                       rows={6}
                       className={fieldClassName}
                       placeholder="Write your message to the guest here..."
                     />
-
                     <div className="mt-3 flex justify-end">
                       <button
                         type="button"

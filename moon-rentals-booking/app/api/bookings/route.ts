@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   addBooking,
   deleteBooking,
+  getBookingComputedTotal,
   getBookings,
   recordBookingMessageLog,
+  updateBookingPricing,
   updateBookingStatus,
 } from '@/lib/bookingStore';
 import { recordAdminAction } from '@/lib/adminAudit';
@@ -45,6 +47,34 @@ function calculateBillableDays(start: Date, end: Date) {
   }
 
   return Math.ceil(diffMs / msPerDay);
+}
+
+function parseIntegerValue(value: unknown, fallback = 0) {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.round(parsed);
+}
+
+function parseNullableIntegerValue(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return Math.round(parsed);
 }
 
 function buildReceivedLogMessage(input: {
@@ -89,7 +119,7 @@ function buildApprovedLogMessage(input: {
     input.ratePerDay != null ? `Rate: $${input.ratePerDay}/day` : '',
     input.billableDays != null ? `Billable Days: ${input.billableDays}` : '',
     input.estimatedTotal != null
-      ? `Estimated Total: $${input.estimatedTotal}`
+      ? `Final Total: $${input.estimatedTotal}`
       : '',
     `If you have any questions before pickup, just reply to this email.`,
   ]
@@ -383,10 +413,15 @@ export async function POST(req: NextRequest) {
       pricePerDaySnapshot,
       totalDaysSnapshot,
       totalPriceSnapshot,
+      discountAmount: 0,
+      extraFeeAmount: 0,
+      finalPriceOverride: null,
+      pricingNote: null,
     });
 
     const vehicleName = getVehicleDisplayName(vehicle);
     const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL?.trim();
+    const finalTotal = getBookingComputedTotal(booking);
 
     if (autoConfirm) {
       const subject = 'Booking Confirmed - Moon Rentals';
@@ -397,7 +432,7 @@ export async function POST(req: NextRequest) {
         bookingId: booking.id,
         ratePerDay: pricePerDaySnapshot,
         billableDays: totalDaysSnapshot,
-        estimatedTotal: totalPriceSnapshot,
+        estimatedTotal: finalTotal,
       });
 
       await sendBookingApprovedEmail({
@@ -410,7 +445,11 @@ export async function POST(req: NextRequest) {
         vehicleImage: vehicle.image,
         ratePerDay: pricePerDaySnapshot,
         billableDays: totalDaysSnapshot,
-        estimatedTotal: totalPriceSnapshot,
+        estimatedTotal: finalTotal,
+        baseSubtotal: booking.totalPriceSnapshot,
+        discountAmount: booking.discountAmount,
+        extraFeeAmount: booking.extraFeeAmount,
+        finalPriceOverride: booking.finalPriceOverride,
       });
 
       await recordBookingMessageLog({
@@ -431,6 +470,7 @@ export async function POST(req: NextRequest) {
           vehicleId,
           pickupAt,
           returnAt,
+          finalTotal,
         },
       });
     } else {
@@ -456,6 +496,10 @@ export async function POST(req: NextRequest) {
         ratePerDay: pricePerDaySnapshot,
         billableDays: totalDaysSnapshot,
         estimatedTotal: totalPriceSnapshot,
+        baseSubtotal: totalPriceSnapshot,
+        discountAmount: 0,
+        extraFeeAmount: 0,
+        finalPriceOverride: null,
       });
 
       await recordBookingMessageLog({
@@ -481,6 +525,10 @@ export async function POST(req: NextRequest) {
           ratePerDay: pricePerDaySnapshot,
           billableDays: totalDaysSnapshot,
           estimatedTotal: totalPriceSnapshot,
+          baseSubtotal: totalPriceSnapshot,
+          discountAmount: 0,
+          extraFeeAmount: 0,
+          finalPriceOverride: null,
         });
       }
 
@@ -494,6 +542,7 @@ export async function POST(req: NextRequest) {
           pickupAt,
           returnAt,
           status: nextStatus,
+          estimatedTotal: totalPriceSnapshot,
         },
       });
     }
@@ -516,16 +565,9 @@ export async function PATCH(req: NextRequest) {
     const rejectionReason =
       typeof body.rejectionReason === 'string' ? body.rejectionReason : '';
 
-    if (!id || !status) {
+    if (!id) {
       return NextResponse.json(
-        { error: 'Booking id and status are required.' },
-        { status: 400 }
-      );
-    }
-
-    if (!['pending', 'confirmed', 'cancelled'].includes(status)) {
-      return NextResponse.json(
-        { error: 'Invalid booking status.' },
+        { error: 'Booking id is required.' },
         { status: 400 }
       );
     }
@@ -540,15 +582,80 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (status === 'confirmed' && currentBooking.status !== 'confirmed') {
-      const pickupDate = new Date(currentBooking.pickupAt);
-      const returnDate = new Date(currentBooking.returnAt);
+    const hasPricingPayload =
+      body.discountAmount !== undefined ||
+      body.extraFeeAmount !== undefined ||
+      body.finalPriceOverride !== undefined ||
+      body.pricingNote !== undefined;
+
+    let pricingUpdatedBooking = currentBooking;
+
+    if (hasPricingPayload) {
+      const discountAmount = Math.max(0, parseIntegerValue(body.discountAmount, currentBooking.discountAmount));
+      const extraFeeAmount = Math.max(0, parseIntegerValue(body.extraFeeAmount, currentBooking.extraFeeAmount));
+      const finalPriceOverride = parseNullableIntegerValue(body.finalPriceOverride);
+      const pricingNote =
+        typeof body.pricingNote === 'string'
+          ? body.pricingNote
+          : currentBooking.pricingNote;
+
+      if (finalPriceOverride != null && finalPriceOverride < 0) {
+        return NextResponse.json(
+          { error: 'Final price override cannot be negative.' },
+          { status: 400 }
+        );
+      }
+
+      const updatedPricing = await updateBookingPricing(id, {
+        discountAmount,
+        extraFeeAmount,
+        finalPriceOverride,
+        pricingNote,
+      });
+
+      if (!updatedPricing) {
+        return NextResponse.json(
+          { error: 'Failed to update pricing.' },
+          { status: 500 }
+        );
+      }
+
+      pricingUpdatedBooking = updatedPricing;
+
+      await recordAdminAction({
+        action: 'BOOKING_PRICING_UPDATED',
+        entity: 'booking',
+        entityId: id,
+        metadata: {
+          discountAmount,
+          extraFeeAmount,
+          finalPriceOverride,
+          pricingNote: pricingNote?.trim() || null,
+          computedTotal: getBookingComputedTotal(updatedPricing),
+        },
+      });
+    }
+
+    if (status === undefined) {
+      return NextResponse.json({ booking: pricingUpdatedBooking });
+    }
+
+    if (!['pending', 'confirmed', 'cancelled'].includes(status)) {
+      return NextResponse.json(
+        { error: 'Invalid booking status.' },
+        { status: 400 }
+      );
+    }
+
+    if (status === 'confirmed' && pricingUpdatedBooking.status !== 'confirmed') {
+      const pickupDate = new Date(pricingUpdatedBooking.pickupAt);
+      const returnDate = new Date(pricingUpdatedBooking.returnAt);
 
       const { conflictingBlock, conflictingBooking } = await findConflicts({
-        vehicleId: currentBooking.vehicleId,
+        vehicleId: pricingUpdatedBooking.vehicleId,
         pickupDate,
         returnDate,
-        excludeBookingId: currentBooking.id,
+        excludeBookingId: pricingUpdatedBooking.id,
       });
 
       if (conflictingBlock) {
@@ -596,9 +703,13 @@ export async function PATCH(req: NextRequest) {
 
     const ratePerDay = updatedBooking.pricePerDaySnapshot;
     const billableDays = updatedBooking.totalDaysSnapshot;
-    const estimatedTotal = updatedBooking.totalPriceSnapshot;
+    const baseSubtotal = updatedBooking.totalPriceSnapshot;
+    const discountAmount = updatedBooking.discountAmount;
+    const extraFeeAmount = updatedBooking.extraFeeAmount;
+    const finalPriceOverride = updatedBooking.finalPriceOverride;
+    const estimatedTotal = getBookingComputedTotal(updatedBooking);
 
-    if (status === 'confirmed' && currentBooking.status !== 'confirmed') {
+    if (status === 'confirmed' && pricingUpdatedBooking.status !== 'confirmed') {
       const subject = 'Booking Confirmed - Moon Rentals';
       const bodyText = buildApprovedLogMessage({
         vehicle: vehicleName,
@@ -621,6 +732,10 @@ export async function PATCH(req: NextRequest) {
         ratePerDay,
         billableDays,
         estimatedTotal,
+        baseSubtotal,
+        discountAmount,
+        extraFeeAmount,
+        finalPriceOverride,
       });
 
       await recordBookingMessageLog({
@@ -638,12 +753,13 @@ export async function PATCH(req: NextRequest) {
         entityId: updatedBooking.id,
         metadata: {
           vehicleId: updatedBooking.vehicleId,
+          finalTotal: estimatedTotal,
         },
       });
     }
 
-    if (status === 'cancelled' && currentBooking.status !== 'cancelled') {
-      const mode = currentBooking.status === 'confirmed' ? 'cancelled' : 'rejected';
+    if (status === 'cancelled' && pricingUpdatedBooking.status !== 'cancelled') {
+      const mode = pricingUpdatedBooking.status === 'confirmed' ? 'cancelled' : 'rejected';
       const subject =
         mode === 'cancelled'
           ? 'Booking Cancelled - Moon Rentals'
@@ -669,6 +785,10 @@ export async function PATCH(req: NextRequest) {
         ratePerDay,
         billableDays,
         estimatedTotal,
+        baseSubtotal,
+        discountAmount,
+        extraFeeAmount,
+        finalPriceOverride,
         reason: updatedBooking.rejectionReason,
         mode,
       });
@@ -697,7 +817,7 @@ export async function PATCH(req: NextRequest) {
   } catch (error) {
     console.error('PATCH /api/bookings error:', error);
     return NextResponse.json(
-      { error: 'Failed to update booking status.' },
+      { error: 'Failed to update booking.' },
       { status: 500 }
     );
   }
