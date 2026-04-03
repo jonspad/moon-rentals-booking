@@ -4,6 +4,22 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
+type BookingMessageLog = {
+  id: number;
+  kind: 'manual' | 'automated' | 'resend';
+  template:
+    | 'booking_received'
+    | 'booking_approved'
+    | 'booking_rejected'
+    | 'booking_cancelled'
+    | 'guest_message';
+  recipientEmail: string;
+  subject: string;
+  body: string;
+  sentAt: string;
+  createdAt: string;
+};
+
 type Booking = {
   id: number;
   customerId?: number | null;
@@ -23,6 +39,7 @@ type Booking = {
     id: number;
     verificationStatus: string;
   } | null;
+  messageLogs?: BookingMessageLog[];
 };
 
 type Vehicle = {
@@ -79,6 +96,35 @@ function formatDateOnly(value: string) {
   });
 }
 
+function getMessageKindClasses(kind: BookingMessageLog['kind']) {
+  if (kind === 'automated') {
+    return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
+  }
+
+  if (kind === 'resend') {
+    return 'border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300';
+  }
+
+  return 'border-gray-300 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300';
+}
+
+function getTemplateLabel(template: BookingMessageLog['template']) {
+  switch (template) {
+    case 'booking_received':
+      return 'Booking Received';
+    case 'booking_approved':
+      return 'Booking Approved';
+    case 'booking_rejected':
+      return 'Booking Rejected';
+    case 'booking_cancelled':
+      return 'Booking Cancelled';
+    case 'guest_message':
+      return 'Guest Message';
+    default:
+      return template;
+  }
+}
+
 export default function AdminBookingsPage() {
   const searchParams = useSearchParams();
   const highlightedBookingId = Number(searchParams.get('bookingId')) || null;
@@ -91,6 +137,7 @@ export default function AdminBookingsPage() {
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [messagingId, setMessagingId] = useState<number | null>(null);
+  const [resendingLogId, setResendingLogId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [rejectionReasons, setRejectionReasons] = useState<Record<number, string>>(
@@ -100,6 +147,15 @@ export default function AdminBookingsPage() {
     {}
   );
   const [messageBodies, setMessageBodies] = useState<Record<number, string>>({});
+  const [messageRecipients, setMessageRecipients] = useState<Record<number, string>>(
+    {}
+  );
+  const [resendRecipients, setResendRecipients] = useState<Record<number, string>>(
+    {}
+  );
+  const [expandedMessageLogId, setExpandedMessageLogId] = useState<number | null>(
+    null
+  );
   const [openComposerId, setOpenComposerId] = useState<number | null>(null);
 
   const [search, setSearch] = useState('');
@@ -128,6 +184,32 @@ export default function AdminBookingsPage() {
       for (const booking of nextBookings) {
         if (next[booking.id] === undefined) {
           next[booking.id] = booking.rejectionReason || '';
+        }
+      }
+
+      return next;
+    });
+
+    setMessageRecipients((prev) => {
+      const next = { ...prev };
+
+      for (const booking of nextBookings) {
+        if (next[booking.id] === undefined) {
+          next[booking.id] = booking.email || '';
+        }
+      }
+
+      return next;
+    });
+
+    setResendRecipients((prev) => {
+      const next = { ...prev };
+
+      for (const booking of nextBookings) {
+        for (const log of booking.messageLogs || []) {
+          if (next[log.id] === undefined) {
+            next[log.id] = log.recipientEmail || '';
+          }
         }
       }
 
@@ -241,6 +323,7 @@ export default function AdminBookingsPage() {
     try {
       const subject = (messageSubjects[bookingId] || '').trim();
       const body = (messageBodies[bookingId] || '').trim();
+      const toEmail = (messageRecipients[bookingId] || '').trim();
 
       if (!subject || !body) {
         setError('Please enter both a subject and a message before sending.');
@@ -256,6 +339,7 @@ export default function AdminBookingsPage() {
           bookingId,
           subject,
           message: body,
+          toEmail,
         }),
       });
 
@@ -267,7 +351,7 @@ export default function AdminBookingsPage() {
         return;
       }
 
-      setMessage(`Message sent to guest for booking #${bookingId}.`);
+      setMessage(`Message sent for booking #${bookingId}.`);
       setMessageSubjects((prev) => ({ ...prev, [bookingId]: '' }));
       setMessageBodies((prev) => ({ ...prev, [bookingId]: '' }));
       await loadBookings();
@@ -276,6 +360,43 @@ export default function AdminBookingsPage() {
       setError('Failed to send guest message.');
     } finally {
       setMessagingId(null);
+    }
+  }
+
+  async function resendLoggedMessage(messageLogId: number, bookingId: number) {
+    setResendingLogId(messageLogId);
+    setError('');
+    setMessage('');
+
+    try {
+      const toEmail = (resendRecipients[messageLogId] || '').trim();
+
+      const res = await fetch('/api/bookings/message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messageLogId,
+          toEmail,
+        }),
+      });
+
+      const rawText = await res.text();
+      const data = rawText ? JSON.parse(rawText) : {};
+
+      if (!res.ok) {
+        setError(data.error || 'Failed to resend message.');
+        return;
+      }
+
+      setMessage(`Message resent for booking #${bookingId}.`);
+      await loadBookings();
+    } catch (err) {
+      console.error('Failed to resend message:', err);
+      setError('Failed to resend message.');
+    } finally {
+      setResendingLogId(null);
     }
   }
 
@@ -411,7 +532,7 @@ export default function AdminBookingsPage() {
         <h2 className="text-2xl font-bold">Bookings</h2>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
           Review customer booking requests, approve or decline them, search faster,
-          and message guests directly from the admin panel.
+          message guests, and view full communication history.
         </p>
       </div>
 
@@ -744,25 +865,109 @@ export default function AdminBookingsPage() {
                   </div>
 
                   <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-neutral-800 dark:bg-neutral-950">
-                    <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                      Last guest message
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                          Message History
+                        </div>
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                          Automated, manual, and resent messages for this booking.
+                        </p>
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {(booking.messageLogs || []).length} sent
+                      </div>
                     </div>
-                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                      Most recent manual email sent from admin.
-                    </p>
 
-                    <div className="mt-3 space-y-2 text-sm text-gray-900 dark:text-white">
-                      <div>
-                        <span className="font-medium">Subject:</span>{' '}
-                        {booking.lastAdminMessageSubject || '—'}
-                      </div>
-                      <div>
-                        <span className="font-medium">Sent:</span>{' '}
-                        {formatDateTime(booking.lastAdminMessagedAt)}
-                      </div>
-                      <div className="whitespace-pre-wrap rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white">
-                        {booking.lastAdminMessageBody || 'No manual guest message sent yet.'}
-                      </div>
+                    <div className="mt-3 space-y-3">
+                      {(booking.messageLogs || []).length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-gray-300 px-3 py-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                          No messages have been logged yet.
+                        </div>
+                      ) : (
+                        (booking.messageLogs || []).map((log) => {
+                          const isExpanded = expandedMessageLogId === log.id;
+
+                          return (
+                            <div
+                              key={log.id}
+                              className="rounded-xl border border-gray-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedMessageLogId((prev) =>
+                                    prev === log.id ? null : log.id
+                                  )
+                                }
+                                className="flex w-full items-start justify-between gap-3 text-left"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span
+                                      className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${getMessageKindClasses(
+                                        log.kind
+                                      )}`}
+                                    >
+                                      {log.kind}
+                                    </span>
+                                    <span className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-700 dark:border-gray-700 dark:text-gray-300">
+                                      {getTemplateLabel(log.template)}
+                                    </span>
+                                  </div>
+
+                                  <div className="mt-2 text-sm font-medium text-gray-900 dark:text-white">
+                                    {log.subject}
+                                  </div>
+
+                                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    {formatDateTime(log.sentAt)} • {log.recipientEmail}
+                                  </div>
+                                </div>
+
+                                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
+                                  {isExpanded ? 'Hide' : 'Open'}
+                                </span>
+                              </button>
+
+                              {isExpanded ? (
+                                <div className="mt-3 space-y-3">
+                                  <div className="whitespace-pre-wrap rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white">
+                                    {log.body}
+                                  </div>
+
+                                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px]">
+                                    <input
+                                      type="email"
+                                      value={resendRecipients[log.id] ?? ''}
+                                      onChange={(e) =>
+                                        setResendRecipients((prev) => ({
+                                          ...prev,
+                                          [log.id]: e.target.value,
+                                        }))
+                                      }
+                                      className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-black dark:border-gray-700 dark:bg-gray-900 dark:focus:border-white"
+                                      placeholder="Resend to email"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        resendLoggedMessage(log.id, booking.id)
+                                      }
+                                      disabled={resendingLogId === log.id}
+                                      className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                                    >
+                                      {resendingLogId === log.id
+                                        ? 'Resending...'
+                                        : 'Resend'}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </div>
@@ -776,6 +981,19 @@ export default function AdminBookingsPage() {
                       Use this for follow-up questions, requesting more info, or
                       providing updates.
                     </p>
+
+                    <input
+                      type="email"
+                      value={messageRecipients[booking.id] ?? ''}
+                      onChange={(e) =>
+                        setMessageRecipients((prev) => ({
+                          ...prev,
+                          [booking.id]: e.target.value,
+                        }))
+                      }
+                      className={fieldClassName}
+                      placeholder="Send to email"
+                    />
 
                     <input
                       type="text"

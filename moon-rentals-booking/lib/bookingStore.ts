@@ -1,6 +1,25 @@
 import { prisma } from './prisma';
 
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled';
+export type BookingMessageKind = 'manual' | 'automated' | 'resend';
+export type BookingMessageTemplate =
+  | 'booking_received'
+  | 'booking_approved'
+  | 'booking_rejected'
+  | 'booking_cancelled'
+  | 'guest_message';
+
+export type BookingMessageLog = {
+  id: number;
+  bookingId: number;
+  kind: BookingMessageKind;
+  template: BookingMessageTemplate;
+  recipientEmail: string;
+  subject: string;
+  body: string;
+  sentAt: string;
+  createdAt: string;
+};
 
 export type Booking = {
   id: number;
@@ -52,6 +71,30 @@ function mapBooking(booking: {
       ? booking.lastAdminMessagedAt.toISOString()
       : null,
     createdAt: booking.createdAt.toISOString(),
+  };
+}
+
+function mapBookingMessageLog(log: {
+  id: number;
+  bookingId: number;
+  kind: string;
+  template: string;
+  recipientEmail: string;
+  subject: string;
+  body: string;
+  sentAt: Date;
+  createdAt: Date;
+}): BookingMessageLog {
+  return {
+    id: log.id,
+    bookingId: log.bookingId,
+    kind: log.kind as BookingMessageKind,
+    template: log.template as BookingMessageTemplate,
+    recipientEmail: log.recipientEmail,
+    subject: log.subject,
+    body: log.body,
+    sentAt: log.sentAt.toISOString(),
+    createdAt: log.createdAt.toISOString(),
   };
 }
 
@@ -139,6 +182,81 @@ export async function recordAdminMessage(
     return mapBooking(updated);
   } catch (error) {
     console.error(`Error recording admin message for booking ${id}:`, error);
+    return null;
+  }
+}
+
+export async function recordBookingMessageLog(input: {
+  bookingId: number;
+  kind: BookingMessageKind;
+  template: BookingMessageTemplate;
+  recipientEmail: string;
+  subject: string;
+  body: string;
+  updateLastAdminMessage?: boolean;
+}): Promise<BookingMessageLog | null> {
+  try {
+    const now = new Date();
+
+    const created = await prisma.bookingMessageLog.create({
+      data: {
+        bookingId: input.bookingId,
+        kind: input.kind,
+        template: input.template,
+        recipientEmail: input.recipientEmail.trim().toLowerCase(),
+        subject: input.subject.trim(),
+        body: input.body.trim(),
+        sentAt: now,
+      },
+    });
+
+    if (input.updateLastAdminMessage) {
+      await prisma.booking.update({
+        where: { id: input.bookingId },
+        data: {
+          lastAdminMessageSubject: input.subject.trim(),
+          lastAdminMessageBody: input.body.trim(),
+          lastAdminMessagedAt: now,
+        },
+      });
+    }
+
+    return mapBookingMessageLog(created);
+  } catch (error) {
+    console.error(
+      `Error recording booking message log for booking ${input.bookingId}:`,
+      error
+    );
+    return null;
+  }
+}
+
+export async function getBookingMessageLogById(
+  id: number
+): Promise<
+  | (BookingMessageLog & {
+      booking: Booking;
+    })
+  | null
+> {
+  try {
+    const log = await prisma.bookingMessageLog.findUnique({
+      where: { id },
+      include: {
+        booking: true,
+      },
+    });
+
+    if (!log) {
+      return null;
+    }
+
+    return {
+      ...mapBookingMessageLog(log),
+      booking: mapBooking(log.booking),
+    };
+  } catch (error) {
+    console.error(`Error fetching booking message log ${id}:`, error);
     return null;
   }
 }

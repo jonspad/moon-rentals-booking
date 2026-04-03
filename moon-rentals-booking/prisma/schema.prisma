@@ -55,7 +55,7 @@ model Customer {
 }
 
 model Booking {
-  id                      Int       @id @default(autoincrement())
+  id                      Int                 @id @default(autoincrement())
   vehicleId               Int
   customerId              Int
   fullName                String
@@ -63,15 +63,16 @@ model Booking {
   phone                   String
   pickupAt                DateTime
   returnAt                DateTime
-  status                  String    @default("pending")
-  verificationStatus      String    @default("pending")
-  paymentStatus           String    @default("unpaid")
+  status                  String              @default("pending")
+  verificationStatus      String              @default("pending")
+  paymentStatus           String              @default("unpaid")
   rejectionReason         String?
   lastAdminMessageSubject String?
   lastAdminMessageBody    String?
   lastAdminMessagedAt     DateTime?
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  messageLogs             BookingMessageLog[]
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
 
   vehicle   Vehicle            @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   customer  Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
@@ -83,6 +84,25 @@ model Booking {
   @@index([status])
   @@index([verificationStatus])
   @@index([paymentStatus])
+}
+
+model BookingMessageLog {
+  id             Int      @id @default(autoincrement())
+  bookingId      Int
+  kind           String
+  template       String
+  recipientEmail String
+  subject        String
+  body           String
+  sentAt         DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([kind])
+  @@index([template])
+  @@index([sentAt])
 }
 
 model VehicleBlock {

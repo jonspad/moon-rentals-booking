@@ -3,6 +3,7 @@ import {
   addBooking,
   deleteBooking,
   getBookings,
+  recordBookingMessageLog,
   updateBookingStatus,
 } from '@/lib/bookingStore';
 import { getBlocks } from '@/lib/blockStore';
@@ -45,6 +46,81 @@ function calculateBillableDays(start: Date, end: Date) {
   return Math.ceil(diffMs / msPerDay);
 }
 
+function buildReceivedLogMessage(input: {
+  vehicle: string;
+  pickupAt: string;
+  returnAt: string;
+  bookingId: number;
+  ratePerDay?: number | null;
+  billableDays?: number | null;
+  estimatedTotal?: number | null;
+}) {
+  return [
+    `Your booking request for ${input.vehicle} has been received and is pending review.`,
+    `Booking ID: #${input.bookingId}`,
+    `Pickup: ${input.pickupAt}`,
+    `Return: ${input.returnAt}`,
+    input.ratePerDay != null ? `Rate: $${input.ratePerDay}/day` : '',
+    input.billableDays != null ? `Billable Days: ${input.billableDays}` : '',
+    input.estimatedTotal != null
+      ? `Estimated Total: $${input.estimatedTotal}`
+      : '',
+    `We’ll review the request and follow up as soon as possible.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildApprovedLogMessage(input: {
+  vehicle: string;
+  pickupAt: string;
+  returnAt: string;
+  bookingId: number;
+  ratePerDay?: number | null;
+  billableDays?: number | null;
+  estimatedTotal?: number | null;
+}) {
+  return [
+    `Your booking has been approved for ${input.vehicle}.`,
+    `Booking ID: #${input.bookingId}`,
+    `Pickup: ${input.pickupAt}`,
+    `Return: ${input.returnAt}`,
+    input.ratePerDay != null ? `Rate: $${input.ratePerDay}/day` : '',
+    input.billableDays != null ? `Billable Days: ${input.billableDays}` : '',
+    input.estimatedTotal != null
+      ? `Estimated Total: $${input.estimatedTotal}`
+      : '',
+    `If you have any questions before pickup, just reply to this email.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildRejectedLogMessage(input: {
+  vehicle: string;
+  pickupAt: string;
+  returnAt: string;
+  bookingId: number;
+  reason?: string | null;
+  mode: 'rejected' | 'cancelled';
+}) {
+  const intro =
+    input.mode === 'cancelled'
+      ? `Your confirmed booking for ${input.vehicle} has been cancelled.`
+      : `We’re unable to approve your booking request for ${input.vehicle} at this time.`;
+
+  return [
+    intro,
+    `Booking ID: #${input.bookingId}`,
+    `Pickup: ${input.pickupAt}`,
+    `Return: ${input.returnAt}`,
+    input.reason?.trim() ? `Reason: ${input.reason.trim()}` : '',
+    `Please reply to this email if you’d like to discuss other availability or have any questions.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export async function GET() {
   try {
     const bookings = await prisma.booking.findMany({
@@ -54,6 +130,19 @@ export async function GET() {
           select: {
             id: true,
             verificationStatus: true,
+          },
+        },
+        messageLogs: {
+          orderBy: { sentAt: 'desc' },
+          select: {
+            id: true,
+            kind: true,
+            template: true,
+            recipientEmail: true,
+            subject: true,
+            body: true,
+            sentAt: true,
+            createdAt: true,
           },
         },
       },
@@ -227,6 +316,17 @@ export async function POST(req: NextRequest) {
     const estimatedTotal = billableDays * ratePerDay;
     const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL?.trim();
 
+    const guestSubject = 'Booking Request Received - Moon Rentals';
+    const guestBody = buildReceivedLogMessage({
+      vehicle: vehicleName,
+      pickupAt,
+      returnAt,
+      bookingId: booking.id,
+      ratePerDay,
+      billableDays,
+      estimatedTotal,
+    });
+
     await sendBookingReceivedEmail({
       to: normalizedEmail,
       name: normalizedName,
@@ -238,6 +338,15 @@ export async function POST(req: NextRequest) {
       ratePerDay,
       billableDays,
       estimatedTotal,
+    });
+
+    await recordBookingMessageLog({
+      bookingId: booking.id,
+      kind: 'automated',
+      template: 'booking_received',
+      recipientEmail: normalizedEmail,
+      subject: guestSubject,
+      body: guestBody,
     });
 
     if (adminNotificationEmail) {
@@ -342,6 +451,17 @@ export async function PATCH(req: NextRequest) {
         : null;
 
     if (status === 'confirmed' && currentBooking.status !== 'confirmed') {
+      const subject = 'Booking Confirmed - Moon Rentals';
+      const bodyText = buildApprovedLogMessage({
+        vehicle: vehicleName,
+        pickupAt: updatedBooking.pickupAt,
+        returnAt: updatedBooking.returnAt,
+        bookingId: updatedBooking.id,
+        ratePerDay,
+        billableDays,
+        estimatedTotal,
+      });
+
       await sendBookingApprovedEmail({
         to: updatedBooking.email,
         name: updatedBooking.fullName,
@@ -354,9 +474,33 @@ export async function PATCH(req: NextRequest) {
         billableDays,
         estimatedTotal,
       });
+
+      await recordBookingMessageLog({
+        bookingId: updatedBooking.id,
+        kind: 'automated',
+        template: 'booking_approved',
+        recipientEmail: updatedBooking.email,
+        subject,
+        body: bodyText,
+      });
     }
 
     if (status === 'cancelled' && currentBooking.status !== 'cancelled') {
+      const mode = currentBooking.status === 'confirmed' ? 'cancelled' : 'rejected';
+      const subject =
+        mode === 'cancelled'
+          ? 'Booking Cancelled - Moon Rentals'
+          : 'Booking Request Update - Moon Rentals';
+
+      const bodyText = buildRejectedLogMessage({
+        vehicle: vehicleName,
+        pickupAt: updatedBooking.pickupAt,
+        returnAt: updatedBooking.returnAt,
+        bookingId: updatedBooking.id,
+        reason: updatedBooking.rejectionReason,
+        mode,
+      });
+
       await sendBookingRejectedEmail({
         to: updatedBooking.email,
         name: updatedBooking.fullName,
@@ -369,7 +513,16 @@ export async function PATCH(req: NextRequest) {
         billableDays,
         estimatedTotal,
         reason: updatedBooking.rejectionReason,
-        mode: currentBooking.status === 'confirmed' ? 'cancelled' : 'rejected',
+        mode,
+      });
+
+      await recordBookingMessageLog({
+        bookingId: updatedBooking.id,
+        kind: 'automated',
+        template: mode === 'cancelled' ? 'booking_cancelled' : 'booking_rejected',
+        recipientEmail: updatedBooking.email,
+        subject,
+        body: bodyText,
       });
     }
 
