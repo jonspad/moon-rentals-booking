@@ -32,6 +32,59 @@ function normalizeText(value: unknown) {
   return value.trim();
 }
 
+function normalizeDirectVehicleIds(body: Record<string, unknown>): number[] {
+  const directIds: number[] = Array.isArray(body.vehicleIds)
+    ? body.vehicleIds
+        .map((value: unknown) => Number(value))
+        .filter((value: number) => Number.isInteger(value) && value > 0)
+    : body.vehicleId
+      ? [Number(body.vehicleId)].filter(
+          (value: number) => Number.isInteger(value) && value > 0
+        )
+      : [];
+
+  return Array.from(new Set(directIds));
+}
+
+async function resolveVehicleSelection(body: Record<string, unknown>) {
+  const directIds = normalizeDirectVehicleIds(body);
+
+  const vehicleGroupId =
+    body.vehicleGroupId !== undefined && body.vehicleGroupId !== null
+      ? Number(body.vehicleGroupId)
+      : null;
+
+  if (!vehicleGroupId) {
+    return {
+      vehicleIds: directIds,
+      sourceVehicleGroupName: '',
+    };
+  }
+
+  const vehicleGroup = await prisma.vehicleGroup.findUnique({
+    where: { id: vehicleGroupId },
+    include: {
+      vehicles: {
+        select: {
+          vehicleId: true,
+        },
+      },
+    },
+  });
+
+  if (!vehicleGroup) {
+    throw new Error('Selected vehicle group was not found.');
+  }
+
+  const groupVehicleIds = vehicleGroup.vehicles.map((entry) => entry.vehicleId);
+  const mergedVehicleIds = Array.from(new Set([...directIds, ...groupVehicleIds]));
+
+  return {
+    vehicleIds: mergedVehicleIds,
+    sourceVehicleGroupName: vehicleGroup.name,
+  };
+}
+
 function buildGroupedBlocks(
   groupedBlocks: Array<{
     id: number;
@@ -204,7 +257,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = (await req.json()) as Record<string, unknown>;
 
     const blockGroupId =
       body.blockGroupId !== undefined && body.blockGroupId !== null
@@ -214,19 +267,10 @@ export async function POST(req: NextRequest) {
     const start = body.start;
     const end = body.end;
     const reason = normalizeText(body.reason);
-    const name = normalizeText(body.groupName ?? body.name);
+    const requestedName = normalizeText(body.groupName ?? body.name);
 
-    const incomingVehicleIds: number[] = Array.isArray(body.vehicleIds)
-  ? body.vehicleIds
-      .map((value: unknown) => Number(value))
-      .filter((value: number) => Number.isInteger(value) && value > 0)
-  : body.vehicleId
-    ? [Number(body.vehicleId)].filter(
-        (value: number) => Number.isInteger(value) && value > 0
-      )
-    : [];
-
-    const uniqueVehicleIds = Array.from(new Set(incomingVehicleIds));
+    const { vehicleIds, sourceVehicleGroupName } = await resolveVehicleSelection(body);
+    const uniqueVehicleIds = Array.from(new Set(vehicleIds));
 
     if (uniqueVehicleIds.length === 0) {
       return NextResponse.json(
@@ -277,7 +321,7 @@ export async function POST(req: NextRequest) {
       );
 
       const newVehicleIds = uniqueVehicleIds.filter(
-        (vehicleId) => !existingVehicleIds.has(vehicleId)
+        (vehicleId: number) => !existingVehicleIds.has(vehicleId)
       );
 
       if (newVehicleIds.length === 0) {
@@ -288,7 +332,7 @@ export async function POST(req: NextRequest) {
       }
 
       await prisma.vehicleBlock.createMany({
-        data: newVehicleIds.map((vehicleId) => ({
+        data: newVehicleIds.map((vehicleId: number) => ({
           vehicleId,
           blockGroupId: existingGroup.id,
           startAt: existingGroup.startAt,
@@ -326,7 +370,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!start || !end) {
+    if (typeof start !== 'string' || typeof end !== 'string') {
       return NextResponse.json(
         { error: 'start and end are required when creating a new block group.' },
         { status: 400 }
@@ -353,10 +397,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const finalName = requestedName || sourceVehicleGroupName || '';
+
     const createdGroup = await prisma.$transaction(async (tx) => {
       const group = await tx.vehicleBlockGroup.create({
         data: {
-          name: name || null,
+          name: finalName || null,
           reason: reason || null,
           startAt: startDate,
           endAt: endDate,
@@ -364,7 +410,7 @@ export async function POST(req: NextRequest) {
       });
 
       await tx.vehicleBlock.createMany({
-        data: uniqueVehicleIds.map((vehicleId) => ({
+        data: uniqueVehicleIds.map((vehicleId: number) => ({
           vehicleId,
           blockGroupId: group.id,
           startAt: startDate,
@@ -403,6 +449,14 @@ export async function POST(req: NextRequest) {
     );
   } catch (error) {
     console.error('POST /api/vehicle-blocks error:', error);
+
+    if (error instanceof Error && error.message === 'Selected vehicle group was not found.') {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 404 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Failed to create or update block.' },
       { status: 500 }

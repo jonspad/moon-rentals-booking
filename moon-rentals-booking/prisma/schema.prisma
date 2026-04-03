@@ -8,9 +8,9 @@ datasource db {
 }
 
 model Vehicle {
-  id            Int            @id @default(autoincrement())
+  id            Int                   @id @default(autoincrement())
   groupId       String
-  slug          String         @unique
+  slug          String                @unique
   vin           String?
   licensePlate  String?
   year          Int
@@ -24,11 +24,12 @@ model Vehicle {
   image         String
   description   String
   internalNotes String?
-  isActive      Boolean        @default(true)
+  isActive      Boolean               @default(true)
   bookings      Booking[]
   blocks        VehicleBlock[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  savedGroups   VehicleGroupVehicle[]
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
   @@index([groupId])
   @@index([category])
@@ -103,6 +104,33 @@ model BookingMessageLog {
   @@index([kind])
   @@index([template])
   @@index([sentAt])
+}
+
+model VehicleGroup {
+  id          Int                   @id @default(autoincrement())
+  name        String
+  description String?
+  isActive    Boolean               @default(true)
+  vehicles    VehicleGroupVehicle[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model VehicleGroupVehicle {
+  id             Int      @id @default(autoincrement())
+  vehicleGroupId Int
+  vehicleId      Int
+  createdAt      DateTime @default(now())
+
+  vehicleGroup VehicleGroup @relation(fields: [vehicleGroupId], references: [id], onDelete: Cascade)
+  vehicle      Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  @@unique([vehicleGroupId, vehicleId])
+  @@index([vehicleGroupId])
+  @@index([vehicleId])
 }
 
 model VehicleBlockGroup {

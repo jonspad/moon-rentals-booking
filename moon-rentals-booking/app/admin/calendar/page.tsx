@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 type Booking = {
   id: number;
@@ -233,6 +233,7 @@ export default function AdminCalendarPage() {
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [eventFilter, setEventFilter] = useState<CalendarFilter>('all');
@@ -244,13 +245,9 @@ export default function AdminCalendarPage() {
   const [blockVehicleId, setBlockVehicleId] = useState('');
   const [selectedBlockVehicleIds, setSelectedBlockVehicleIds] = useState<number[]>([]);
   const [blockGroupName, setBlockGroupName] = useState('');
-  const [blockStartDate, setBlockStartDate] = useState(() =>
-    toDateInputValue(new Date())
-  );
+  const [blockStartDate, setBlockStartDate] = useState(() => toDateInputValue(new Date()));
   const [blockStartTime, setBlockStartTime] = useState('10:00');
-  const [blockEndDate, setBlockEndDate] = useState(() =>
-    toDateInputValue(new Date())
-  );
+  const [blockEndDate, setBlockEndDate] = useState(() => toDateInputValue(new Date()));
   const [blockEndTime, setBlockEndTime] = useState('10:30');
   const [blockReason, setBlockReason] = useState('');
 
@@ -309,9 +306,14 @@ export default function AdminCalendarPage() {
     setBlockGroups(Array.isArray(data.blockGroups) ? data.blockGroups : []);
   }
 
-  async function refreshData() {
+  async function refreshData(showFullLoader = false) {
     try {
-      setLoading(true);
+      if (showFullLoader) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
+
       setError('');
       await Promise.all([loadVehicles(), loadBookings(), loadBlocks()]);
     } catch (err) {
@@ -319,11 +321,12 @@ export default function AdminCalendarPage() {
       setError('Failed to load calendar data.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
   useEffect(() => {
-    void refreshData();
+    void refreshData(true);
   }, []);
 
   useEffect(() => {
@@ -334,6 +337,31 @@ export default function AdminCalendarPage() {
     setBlockEndTime('10:30');
   }, [selectedDate]);
 
+  useEffect(() => {
+    if (blockScope !== 'single') {
+      setBlockVehicleId('');
+    }
+
+    if (blockScope !== 'selected') {
+      setSelectedBlockVehicleIds([]);
+    }
+  }, [blockScope]);
+
+  function resetBlockForm() {
+    const dateValue = toDateInputValue(selectedDate);
+
+    setBlockScope('single');
+    setFullDayBlock(true);
+    setBlockVehicleId('');
+    setSelectedBlockVehicleIds([]);
+    setBlockGroupName('');
+    setBlockStartDate(dateValue);
+    setBlockStartTime('10:00');
+    setBlockEndDate(dateValue);
+    setBlockEndTime('10:30');
+    setBlockReason('');
+  }
+
   function toggleSelectedBlockVehicle(vehicleId: number) {
     setSelectedBlockVehicleIds((prev) =>
       prev.includes(vehicleId)
@@ -342,7 +370,19 @@ export default function AdminCalendarPage() {
     );
   }
 
-  async function handleCreateBlock(e: React.FormEvent<HTMLFormElement>) {
+  function selectAllVehiclesForMultiBlock() {
+    setSelectedBlockVehicleIds(
+      vehicleOptions
+        .filter((vehicle) => vehicle.isActive)
+        .map((vehicle) => vehicle.id)
+    );
+  }
+
+  function clearSelectedVehiclesForMultiBlock() {
+    setSelectedBlockVehicleIds([]);
+  }
+
+  async function handleCreateBlock(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setCreatingBlock(true);
     setError('');
@@ -408,9 +448,7 @@ export default function AdminCalendarPage() {
         return;
       }
 
-      setSelectedBlockVehicleIds([]);
-      setBlockReason('');
-      setBlockGroupName('');
+      resetBlockForm();
 
       if (blockScope === 'all') {
         setMessage(
@@ -418,9 +456,7 @@ export default function AdminCalendarPage() {
         );
       } else {
         setMessage(
-          `Block group created for ${vehicleIds.length} vehicle${
-            vehicleIds.length === 1 ? '' : 's'
-          }${fullDayBlock ? ' (full day)' : ''}.`
+          `Block group created for ${vehicleIds.length} vehicle${vehicleIds.length === 1 ? '' : 's'}${fullDayBlock ? ' (full day)' : ''}.`
         );
       }
 
@@ -493,10 +529,7 @@ export default function AdminCalendarPage() {
         return false;
       }
 
-      if (
-        vehicleFilter !== 'all' &&
-        !event.vehicleIds.includes(Number(vehicleFilter))
-      ) {
+      if (vehicleFilter !== 'all' && !event.vehicleIds.includes(Number(vehicleFilter))) {
         return false;
       }
 
@@ -574,6 +607,7 @@ export default function AdminCalendarPage() {
 
         <div className="flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={() =>
               setViewDate(
                 (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
@@ -585,6 +619,7 @@ export default function AdminCalendarPage() {
           </button>
 
           <button
+            type="button"
             onClick={() => {
               const now = new Date();
               setViewDate(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -596,6 +631,7 @@ export default function AdminCalendarPage() {
           </button>
 
           <button
+            type="button"
             onClick={() =>
               setViewDate(
                 (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
@@ -806,10 +842,22 @@ export default function AdminCalendarPage() {
 
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 xl:col-span-1">
-          <h3 className="text-lg font-semibold">Create block from calendar</h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Selected day: {formatDayLabel(selectedDate)}
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold">Create block from calendar</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Selected day: {formatDayLabel(selectedDate)}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={resetBlockForm}
+              className="rounded-xl border border-gray-300 px-3 py-2 text-xs font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              Reset
+            </button>
+          </div>
 
           <form onSubmit={handleCreateBlock} className="mt-4 space-y-4">
             <div>
@@ -875,6 +923,7 @@ export default function AdminCalendarPage() {
                   {vehicleOptions.map((vehicle) => (
                     <option key={vehicle.id} value={String(vehicle.id)}>
                       {vehicle.year} {vehicle.make} {vehicle.model}
+                      {!vehicle.isActive ? ' (Inactive)' : ''}
                     </option>
                   ))}
                 </select>
@@ -883,11 +932,30 @@ export default function AdminCalendarPage() {
 
             {blockScope === 'selected' ? (
               <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900/40">
-                <div className="mb-3">
-                  <h4 className="text-sm font-semibold">Choose vehicles</h4>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    This creates one parent block with multiple vehicles inside it.
-                  </p>
+                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold">Choose vehicles</h4>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      This creates one parent block with multiple vehicles inside it.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllVehiclesForMultiBlock}
+                      className="rounded-xl border border-gray-300 px-3 py-1.5 text-xs font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                    >
+                      Select All Active
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearSelectedVehiclesForMultiBlock}
+                      className="rounded-xl border border-gray-300 px-3 py-1.5 text-xs font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid gap-2">
@@ -911,6 +979,7 @@ export default function AdminCalendarPage() {
                         />
                         <span>
                           {vehicle.year} {vehicle.make} {vehicle.model}
+                          {!vehicle.isActive ? ' (Inactive)' : ''}
                         </span>
                       </label>
                     );
@@ -1042,10 +1111,12 @@ export default function AdminCalendarPage() {
               </p>
             </div>
             <button
-              onClick={refreshData}
-              className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+              type="button"
+              onClick={() => void refreshData(false)}
+              disabled={refreshing}
+              className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
             >
-              Refresh
+              {refreshing ? 'Refreshing...' : 'Refresh'}
             </button>
           </div>
 
