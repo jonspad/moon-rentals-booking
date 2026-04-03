@@ -32,23 +32,36 @@ type Vehicle = {
   isActive: boolean;
 };
 
-type VehicleBlock = {
-  id: number;
+type BlockVehicle = {
+  blockId: number;
   vehicleId: number;
+  label: string;
+};
+
+type BlockGroup = {
+  key: string;
+  groupId: number | null;
+  legacy: boolean;
+  name: string;
+  reason: string;
   start: string;
   end: string;
-  reason: string;
+  createdAt: string;
+  updatedAt: string;
+  blockIds: number[];
+  vehicles: BlockVehicle[];
 };
 
 type CalendarEventType = 'booking' | 'block';
 type CalendarFilter = 'all' | 'bookings' | 'blocks';
-type BlockScope = 'single' | 'all';
+type BlockScope = 'single' | 'selected' | 'all';
 
 type CalendarEvent = {
   id: string;
-  sourceId: number;
   type: CalendarEventType;
-  vehicleId: number;
+  sourceId: number | null;
+  linkHref: string;
+  vehicleIds: number[];
   title: string;
   subtitle: string;
   start: string;
@@ -208,14 +221,6 @@ function getEventPillClasses(event: CalendarEvent) {
   return 'border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300';
 }
 
-function getEventHref(event: CalendarEvent) {
-  if (event.type === 'booking') {
-    return `/admin/bookings?bookingId=${event.sourceId}`;
-  }
-
-  return `/admin/blocks?blockId=${event.sourceId}`;
-}
-
 export default function AdminCalendarPage() {
   const today = useMemo(() => startOfDay(new Date()), []);
   const timeOptions = useMemo(() => generateTimeOptions(), []);
@@ -225,7 +230,7 @@ export default function AdminCalendarPage() {
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [blocks, setBlocks] = useState<VehicleBlock[]>([]);
+  const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -237,6 +242,8 @@ export default function AdminCalendarPage() {
   const [blockScope, setBlockScope] = useState<BlockScope>('single');
   const [fullDayBlock, setFullDayBlock] = useState(true);
   const [blockVehicleId, setBlockVehicleId] = useState('');
+  const [selectedBlockVehicleIds, setSelectedBlockVehicleIds] = useState<number[]>([]);
+  const [blockGroupName, setBlockGroupName] = useState('');
   const [blockStartDate, setBlockStartDate] = useState(() =>
     toDateInputValue(new Date())
   );
@@ -299,7 +306,7 @@ export default function AdminCalendarPage() {
     }
 
     const data = rawText ? JSON.parse(rawText) : {};
-    setBlocks(Array.isArray(data.blocks) ? data.blocks : []);
+    setBlockGroups(Array.isArray(data.blockGroups) ? data.blockGroups : []);
   }
 
   async function refreshData() {
@@ -327,7 +334,15 @@ export default function AdminCalendarPage() {
     setBlockEndTime('10:30');
   }, [selectedDate]);
 
-  async function handleCreateBlock(e: React.FormEvent) {
+  function toggleSelectedBlockVehicle(vehicleId: number) {
+    setSelectedBlockVehicleIds((prev) =>
+      prev.includes(vehicleId)
+        ? prev.filter((id) => id !== vehicleId)
+        : [...prev, vehicleId]
+    );
+  }
+
+  async function handleCreateBlock(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setCreatingBlock(true);
     setError('');
@@ -344,78 +359,71 @@ export default function AdminCalendarPage() {
         return;
       }
 
-      let targetVehicles: Vehicle[] = [];
+      let vehicleIds: number[] = [];
 
       if (blockScope === 'all') {
-        targetVehicles = vehicles.filter((vehicle) => vehicle.isActive);
+        vehicleIds = vehicles
+          .filter((vehicle) => vehicle.isActive)
+          .map((vehicle) => vehicle.id);
 
-        if (targetVehicles.length === 0) {
+        if (vehicleIds.length === 0) {
           setError('No active vehicles are available to block.');
           return;
         }
-      } else {
+      } else if (blockScope === 'single') {
         if (!blockVehicleId) {
           setError('Please select a vehicle.');
           return;
         }
 
-        const selectedVehicle = vehicles.find(
-          (vehicle) => vehicle.id === Number(blockVehicleId)
-        );
-
-        if (!selectedVehicle) {
-          setError('Selected vehicle was not found.');
+        vehicleIds = [Number(blockVehicleId)];
+      } else {
+        if (selectedBlockVehicleIds.length === 0) {
+          setError('Select at least one vehicle.');
           return;
         }
 
-        targetVehicles = [selectedVehicle];
+        vehicleIds = selectedBlockVehicleIds;
       }
 
-      const results = await Promise.all(
-        targetVehicles.map(async (vehicle) => {
-          const res = await fetch('/api/vehicle-blocks', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              vehicleId: vehicle.id,
-              start: blockStart,
-              end: blockEnd,
-              reason: blockReason,
-            }),
-          });
+      const res = await fetch('/api/vehicle-blocks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          vehicleIds,
+          start: blockStart,
+          end: blockEnd,
+          reason: blockReason,
+          groupName: blockGroupName,
+        }),
+      });
 
-          const rawText = await res.text();
-          const data = rawText ? JSON.parse(rawText) : {};
+      const rawText = await res.text();
+      const data = rawText ? JSON.parse(rawText) : {};
 
-          if (!res.ok) {
-            throw new Error(
-              data.error ||
-                `Failed to create block for ${vehicle.year} ${vehicle.make} ${vehicle.model}.`
-            );
-          }
-
-          return data;
-        })
-      );
-
-      if (results.length > 0) {
-        if (blockScope === 'all') {
-          setMessage(
-            `Created ${results.length} ${fullDayBlock ? 'full-day ' : ''}block${
-              results.length === 1 ? '' : 's'
-            } across all active vehicles.`
-          );
-        } else {
-          const vehicleLabel = getVehicleLabel(Number(blockVehicleId), vehicles);
-          setMessage(
-            `Block created for ${vehicleLabel}${fullDayBlock ? ' (full day)' : ''}.`
-          );
-        }
+      if (!res.ok) {
+        setError(data.error || 'Failed to create block.');
+        return;
       }
 
+      setSelectedBlockVehicleIds([]);
       setBlockReason('');
+      setBlockGroupName('');
+
+      if (blockScope === 'all') {
+        setMessage(
+          `Created ${fullDayBlock ? 'full-day ' : ''}block group across ${vehicleIds.length} active vehicles.`
+        );
+      } else {
+        setMessage(
+          `Block group created for ${vehicleIds.length} vehicle${
+            vehicleIds.length === 1 ? '' : 's'
+          }${fullDayBlock ? ' (full day)' : ''}.`
+        );
+      }
+
       await loadBlocks();
     } catch (err) {
       console.error('Failed to create block from calendar:', err);
@@ -430,29 +438,50 @@ export default function AdminCalendarPage() {
       id: `booking-${booking.id}`,
       sourceId: booking.id,
       type: 'booking',
-      vehicleId: booking.vehicleId,
+      vehicleIds: [booking.vehicleId],
       title: getVehicleLabel(booking.vehicleId, vehicles),
       subtitle: `${booking.fullName} • ${booking.status}`,
       start: booking.pickupAt,
       end: booking.returnAt,
       status: booking.status,
+      linkHref: `/admin/bookings?bookingId=${booking.id}`,
     }));
 
-    const blockEvents: CalendarEvent[] = blocks.map((block) => ({
-      id: `block-${block.id}`,
-      sourceId: block.id,
-      type: 'block',
-      vehicleId: block.vehicleId,
-      title: getVehicleLabel(block.vehicleId, vehicles),
-      subtitle: block.reason?.trim() ? block.reason : 'Manual block',
-      start: block.start,
-      end: block.end,
-    }));
+    const groupedBlockEvents: CalendarEvent[] = blockGroups.map((group) => {
+      const vehicleIds = group.vehicles.map((vehicle) => vehicle.vehicleId);
+      const vehicleCount = vehicleIds.length;
 
-    return [...bookingEvents, ...blockEvents].sort(
+      let title = group.name;
+      if (!title.trim()) {
+        title =
+          vehicleCount === 1
+            ? group.vehicles[0]?.label || 'Vehicle block'
+            : `${vehicleCount} vehicle block`;
+      }
+
+      return {
+        id: group.groupId ? `block-group-${group.groupId}` : group.key,
+        sourceId: group.groupId,
+        type: 'block',
+        vehicleIds,
+        title,
+        subtitle:
+          group.reason?.trim() ||
+          (vehicleCount === 1
+            ? group.vehicles[0]?.label || 'Manual block'
+            : `${vehicleCount} vehicles blocked`),
+        start: group.start,
+        end: group.end,
+        linkHref: group.groupId
+          ? `/admin/blocks?blockGroupId=${group.groupId}`
+          : '/admin/blocks',
+      };
+    });
+
+    return [...bookingEvents, ...groupedBlockEvents].sort(
       (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
     );
-  }, [bookings, blocks, vehicles]);
+  }, [bookings, blockGroups, vehicles]);
 
   const filteredEvents = useMemo(() => {
     return allEvents.filter((event) => {
@@ -464,7 +493,10 @@ export default function AdminCalendarPage() {
         return false;
       }
 
-      if (vehicleFilter !== 'all' && String(event.vehicleId) !== vehicleFilter) {
+      if (
+        vehicleFilter !== 'all' &&
+        !event.vehicleIds.includes(Number(vehicleFilter))
+      ) {
         return false;
       }
 
@@ -535,8 +567,8 @@ export default function AdminCalendarPage() {
         <div>
           <h2 className="text-2xl font-bold">Calendar</h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-            View bookings and manual vehicle blocks on a monthly calendar to spot
-            conflicts, gaps, and create new blockouts faster.
+            View bookings and grouped manual blocks on one calendar so you can
+            create cleaner parent blocks and jump straight into block management.
           </p>
         </div>
 
@@ -606,7 +638,7 @@ export default function AdminCalendarPage() {
           <div>
             <h3 className="text-xl font-semibold">{formatMonthLabel(viewDate)}</h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Select a day to inspect bookings and blocks.
+              Select a day to inspect bookings and grouped blocks.
             </p>
           </div>
 
@@ -667,7 +699,7 @@ export default function AdminCalendarPage() {
             Cancelled booking
           </span>
           <span className="rounded-full border border-gray-300 bg-gray-100 px-3 py-1 font-medium text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
-            Manual block
+            Manual block group
           </span>
         </div>
 
@@ -745,18 +777,16 @@ export default function AdminCalendarPage() {
                       {visibleEvents.map((event) => (
                         <Link
                           key={`${event.id}-${day.toISOString()}`}
-                          href={getEventHref(event)}
+                          href={event.linkHref}
                           onClick={(e) => e.stopPropagation()}
                           className={`block truncate rounded-lg border px-2 py-1 text-[11px] font-medium hover:opacity-90 ${getEventPillClasses(
                             event
                           )}`}
-                          title={`${event.type === 'block' ? 'Block' : event.status} • ${getVehicleLabel(
-                            event.vehicleId,
-                            vehicles
-                          )}`}
+                          title={`${event.type === 'block' ? 'Block' : event.status} • ${event.title}`}
                         >
-                          {event.type === 'block' ? 'Block' : event.status} •{' '}
-                          {getVehicleLabel(event.vehicleId, vehicles)}
+                          {event.type === 'block'
+                            ? `Block • ${event.title}`
+                            : `${event.status} • ${event.title}`}
                         </Link>
                       ))}
 
@@ -784,7 +814,7 @@ export default function AdminCalendarPage() {
           <form onSubmit={handleCreateBlock} className="mt-4 space-y-4">
             <div>
               <label className="mb-2 block text-sm font-medium">Block scope</label>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <button
                   type="button"
                   onClick={() => setBlockScope('single')}
@@ -794,7 +824,18 @@ export default function AdminCalendarPage() {
                       : 'border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900'
                   }`}
                 >
-                  Specific vehicle
+                  One vehicle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlockScope('selected')}
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                    blockScope === 'selected'
+                      ? 'border-black bg-black text-white dark:border-white dark:bg-white dark:text-black'
+                      : 'border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900'
+                  }`}
+                >
+                  Selected vehicles
                 </button>
                 <button
                   type="button"
@@ -808,6 +849,17 @@ export default function AdminCalendarPage() {
                   All active vehicles
                 </button>
               </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Parent Block Name</label>
+              <input
+                type="text"
+                value={blockGroupName}
+                onChange={(e) => setBlockGroupName(e.target.value)}
+                placeholder="Maintenance, Weekend Trip, Owner Hold, etc."
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+              />
             </div>
 
             {blockScope === 'single' ? (
@@ -827,11 +879,51 @@ export default function AdminCalendarPage() {
                   ))}
                 </select>
               </div>
-            ) : (
-              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
-                This will create the block across all active vehicles.
+            ) : null}
+
+            {blockScope === 'selected' ? (
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900/40">
+                <div className="mb-3">
+                  <h4 className="text-sm font-semibold">Choose vehicles</h4>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    This creates one parent block with multiple vehicles inside it.
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
+                  {vehicleOptions.map((vehicle) => {
+                    const checked = selectedBlockVehicleIds.includes(vehicle.id);
+
+                    return (
+                      <label
+                        key={vehicle.id}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition ${
+                          checked
+                            ? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30'
+                            : 'border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleSelectedBlockVehicle(vehicle.id)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <span>
+                          {vehicle.year} {vehicle.make} {vehicle.model}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
-            )}
+            ) : null}
+
+            {blockScope === 'all' ? (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+                This will create one grouped block across all active vehicles.
+              </div>
+            ) : null}
 
             <div>
               <label className="inline-flex items-center gap-3 text-sm font-medium">
@@ -929,9 +1021,7 @@ export default function AdminCalendarPage() {
             >
               {creatingBlock
                 ? 'Creating block...'
-                : `Create ${fullDayBlock ? 'Full-Day ' : ''}Block${
-                    blockScope === 'all' ? ' for All Vehicles' : ''
-                  }`}
+                : `Create ${fullDayBlock ? 'Full-Day ' : ''}Grouped Block`}
             </button>
 
             <Link
@@ -977,7 +1067,7 @@ export default function AdminCalendarPage() {
                       )}`}
                     >
                       {event.type === 'block'
-                        ? 'Manual Block'
+                        ? 'Manual Block Group'
                         : `${event.status} Booking`}
                     </span>
                   </div>
@@ -1002,18 +1092,18 @@ export default function AdminCalendarPage() {
                     </p>
                     <p>
                       <span className="font-semibold text-black dark:text-white">
-                        Vehicle:
+                        Vehicles:
                       </span>{' '}
-                      {getVehicleLabel(event.vehicleId, vehicles)}
+                      {event.vehicleIds.length}
                     </p>
                   </div>
 
                   <div className="mt-4">
                     <Link
-                      href={getEventHref(event)}
+                      href={event.linkHref}
                       className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
                     >
-                      Open {event.type === 'booking' ? `Booking #${event.sourceId}` : 'Block'}
+                      Open {event.type === 'booking' ? `Booking #${event.sourceId}` : 'Block Group'}
                     </Link>
                   </div>
                 </article>
@@ -1025,7 +1115,7 @@ export default function AdminCalendarPage() {
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 xl:col-span-1">
           <h3 className="text-lg font-semibold">Upcoming events</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Next 10 bookings and blocks based on the current filters.
+            Next 10 bookings and grouped blocks based on the current filters.
           </p>
 
           <div className="mt-4 space-y-3">
@@ -1046,7 +1136,7 @@ export default function AdminCalendarPage() {
                       )}`}
                     >
                       {event.type === 'block'
-                        ? 'Manual Block'
+                        ? 'Manual Block Group'
                         : `${event.status} Booking`}
                     </span>
                   </div>
@@ -1061,10 +1151,10 @@ export default function AdminCalendarPage() {
 
                   <div className="mt-4">
                     <Link
-                      href={getEventHref(event)}
+                      href={event.linkHref}
                       className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
                     >
-                      Open {event.type === 'booking' ? `Booking #${event.sourceId}` : 'Block'}
+                      Open {event.type === 'booking' ? `Booking #${event.sourceId}` : 'Block Group'}
                     </Link>
                   </div>
                 </article>

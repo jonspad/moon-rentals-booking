@@ -105,18 +105,36 @@ model BookingMessageLog {
   @@index([sentAt])
 }
 
-model VehicleBlock {
-  id        Int      @id @default(autoincrement())
-  vehicleId Int
+model VehicleBlockGroup {
+  id        Int            @id @default(autoincrement())
+  name      String?
+  reason    String?
   startAt   DateTime
   endAt     DateTime
-  reason    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  blocks    VehicleBlock[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
-  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  @@index([startAt, endAt])
+  @@index([name])
+}
 
+model VehicleBlock {
+  id           Int      @id @default(autoincrement())
+  vehicleId    Int
+  blockGroupId Int?
+  startAt      DateTime
+  endAt        DateTime
+  reason       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vehicle    Vehicle            @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  blockGroup VehicleBlockGroup? @relation(fields: [blockGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([blockGroupId, vehicleId])
   @@index([vehicleId])
+  @@index([blockGroupId])
   @@index([startAt, endAt])
 }
 
