@@ -20,6 +20,36 @@ type BookingMessageLog = {
   createdAt: string;
 };
 
+type PricingLineItem = {
+  label: string;
+  amount: number;
+};
+
+function parseAdjustmentText(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(.*?)[-|:]\s*\$?(\d+(?:\.\d{1,2})?)$/);
+      if (!match) return null;
+      return {
+        label: match[1].trim(),
+        amount: Math.round(Number(match[2])),
+      } satisfies PricingLineItem;
+    })
+    .filter((item): item is PricingLineItem => Boolean(item && item.label && Number.isFinite(item.amount) && item.amount > 0));
+}
+
+function formatAdjustmentText(items?: PricingLineItem[] | null) {
+  if (!items?.length) return '';
+  return items.map((item) => `${item.label} - ${item.amount}`).join('\n');
+}
+
+function getAdjustmentTotalFromText(value: string) {
+  return parseAdjustmentText(value).reduce((sum, item) => sum + item.amount, 0);
+}
+
 type Booking = {
   id: number;
   customerId?: number | null;
@@ -35,6 +65,8 @@ type Booking = {
   totalPriceSnapshot: number;
   discountAmount: number;
   extraFeeAmount: number;
+  discountBreakdownItems?: PricingLineItem[];
+  extraFeeBreakdownItems?: PricingLineItem[];
   finalPriceOverride: number | null;
   pricingNote: string | null;
   rejectionReason: string | null;
@@ -194,7 +226,10 @@ export default function AdminBookingsPage() {
   const [finalOverrideInputs, setFinalOverrideInputs] = useState<Record<number, string>>(
     {}
   );
+  const [discountBreakdownInputs, setDiscountBreakdownInputs] = useState<Record<number, string>>({});
+  const [extraFeeBreakdownInputs, setExtraFeeBreakdownInputs] = useState<Record<number, string>>({});
   const [pricingNotes, setPricingNotes] = useState<Record<number, string>>({});
+  const [emailingQuoteId, setEmailingQuoteId] = useState<number | null>(null);
   const [expandedMessageLogId, setExpandedMessageLogId] = useState<number | null>(
     null
   );
@@ -267,6 +302,26 @@ export default function AdminBookingsPage() {
       for (const booking of nextBookings) {
         if (next[booking.id] === undefined) {
           next[booking.id] = String(booking.extraFeeAmount ?? 0);
+        }
+      }
+      return next;
+    });
+
+    setDiscountBreakdownInputs((prev) => {
+      const next = { ...prev };
+      for (const booking of nextBookings) {
+        if (next[booking.id] === undefined) {
+          next[booking.id] = formatAdjustmentText(booking.discountBreakdownItems);
+        }
+      }
+      return next;
+    });
+
+    setExtraFeeBreakdownInputs((prev) => {
+      const next = { ...prev };
+      for (const booking of nextBookings) {
+        if (next[booking.id] === undefined) {
+          next[booking.id] = formatAdjustmentText(booking.extraFeeBreakdownItems);
         }
       }
       return next;
@@ -391,8 +446,16 @@ export default function AdminBookingsPage() {
     setMessage('');
 
     try {
-      const discountAmount = Math.max(0, Number(discountInputs[bookingId] || 0));
-      const extraFeeAmount = Math.max(0, Number(extraFeeInputs[bookingId] || 0));
+      const discountItems = parseAdjustmentText(discountBreakdownInputs[bookingId] || '');
+      const extraFeeItems = parseAdjustmentText(extraFeeBreakdownInputs[bookingId] || '');
+      const derivedDiscountAmount = getAdjustmentTotalFromText(discountBreakdownInputs[bookingId] || '');
+      const derivedExtraFeeAmount = getAdjustmentTotalFromText(extraFeeBreakdownInputs[bookingId] || '');
+      const discountAmount = discountItems.length
+        ? derivedDiscountAmount
+        : Math.max(0, Number(discountInputs[bookingId] || 0));
+      const extraFeeAmount = extraFeeItems.length
+        ? derivedExtraFeeAmount
+        : Math.max(0, Number(extraFeeInputs[bookingId] || 0));
       const finalOverrideRaw = (finalOverrideInputs[bookingId] || '').trim();
       const finalPriceOverride = finalOverrideRaw === '' ? null : Number(finalOverrideRaw);
 
@@ -415,6 +478,8 @@ export default function AdminBookingsPage() {
           id: bookingId,
           discountAmount,
           extraFeeAmount,
+          discountBreakdownItems: discountItems,
+          extraFeeBreakdownItems: extraFeeItems,
           finalPriceOverride,
           pricingNote: pricingNotes[bookingId] || '',
         }),
@@ -435,6 +500,38 @@ export default function AdminBookingsPage() {
       setError('Failed to save pricing.');
     } finally {
       setSavingPricingId(null);
+    }
+  }
+
+  async function emailUpdatedQuote(bookingId: number) {
+    setEmailingQuoteId(bookingId);
+    setError('');
+    setMessage('');
+
+    try {
+      const res = await fetch('/api/bookings/quote', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: bookingId }),
+      });
+
+      const rawText = await res.text();
+      const data = rawText ? JSON.parse(rawText) : {};
+
+      if (!res.ok) {
+        setError(data.error || 'Failed to email updated quote.');
+        return;
+      }
+
+      setMessage(`Updated quote emailed for booking #${bookingId}.`);
+      await loadBookings();
+    } catch (err) {
+      console.error('Failed to email updated quote:', err);
+      setError('Failed to email updated quote.');
+    } finally {
+      setEmailingQuoteId(null);
     }
   }
 
@@ -768,8 +865,10 @@ export default function AdminBookingsPage() {
             const isVerificationApproved = verificationStatus === 'approved';
             const computedFinalTotal = getComputedFinalTotal(booking);
             const previewFinalTotal = (() => {
-              const discount = Math.max(0, Number(discountInputs[booking.id] || 0));
-              const extraFee = Math.max(0, Number(extraFeeInputs[booking.id] || 0));
+              const discountBreakdownTotal = getAdjustmentTotalFromText(discountBreakdownInputs[booking.id] || '');
+              const extraFeeBreakdownTotal = getAdjustmentTotalFromText(extraFeeBreakdownInputs[booking.id] || '');
+              const discount = discountBreakdownTotal || Math.max(0, Number(discountInputs[booking.id] || 0));
+              const extraFee = extraFeeBreakdownTotal || Math.max(0, Number(extraFeeInputs[booking.id] || 0));
               const overrideRaw = (finalOverrideInputs[booking.id] || '').trim();
               const override = overrideRaw === '' ? null : Number(overrideRaw);
               if (override != null && !Number.isNaN(override)) return override;
@@ -932,6 +1031,33 @@ export default function AdminBookingsPage() {
                       </div>
                     </div>
 
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Discount Breakdown</label>
+                        <textarea
+                          rows={3}
+                          value={discountBreakdownInputs[booking.id] ?? ''}
+                          onChange={(e) => setDiscountBreakdownInputs((prev) => ({ ...prev, [booking.id]: e.target.value }))}
+                          className={fieldClassName}
+                          placeholder="Example:\nRepeat guest discount - 25\nManual approval adjustment - 15"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Extra Fee Breakdown</label>
+                        <textarea
+                          rows={3}
+                          value={extraFeeBreakdownInputs[booking.id] ?? ''}
+                          onChange={(e) => setExtraFeeBreakdownInputs((prev) => ({ ...prev, [booking.id]: e.target.value }))}
+                          className={fieldClassName}
+                          placeholder="Example:\nSmoking fee - 100\nLate return fee - 50"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Enter each line as description - amount. When breakdown lines are present, the totals above are calculated from those items and included in guest emails.
+                    </div>
+
                     <div className="mt-3">
                       <label className="block text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Final Price Override</label>
                       <input
@@ -959,13 +1085,22 @@ export default function AdminBookingsPage() {
                       <div className="text-xs text-gray-500 dark:text-gray-400">
                         Guest approval emails will use the saved final total.
                       </div>
-                      <button
-                        onClick={() => savePricing(booking.id)}
-                        disabled={savingPricingId === booking.id}
-                        className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
-                      >
-                        {savingPricingId === booking.id ? 'Saving...' : 'Save Pricing'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => emailUpdatedQuote(booking.id)}
+                          disabled={emailingQuoteId === booking.id}
+                          className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                        >
+                          {emailingQuoteId === booking.id ? 'Emailing...' : 'Email Updated Quote'}
+                        </button>
+                        <button
+                          onClick={() => savePricing(booking.id)}
+                          disabled={savingPricingId === booking.id}
+                          className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                        >
+                          {savingPricingId === booking.id ? 'Saving...' : 'Save Pricing'}
+                        </button>
+                      </div>
                     </div>
                   </div>
 

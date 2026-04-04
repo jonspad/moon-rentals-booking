@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { PricingLineItem, formatMoney } from './bookingPricing';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -9,7 +10,10 @@ type BookingPricingFields = {
   baseSubtotal?: number | null;
   discountAmount?: number | null;
   extraFeeAmount?: number | null;
+  discountBreakdownItems?: PricingLineItem[] | null;
+  extraFeeBreakdownItems?: PricingLineItem[] | null;
   finalPriceOverride?: number | null;
+  pricingNote?: string | null;
 };
 
 type BookingEmailBase = {
@@ -61,18 +65,6 @@ function formatDateTime(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-function formatMoney(value?: number | null) {
-  if (value == null || Number.isNaN(value)) {
-    return '—';
-  }
-
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(value);
 }
 
 function formatRate(value?: number | null) {
@@ -178,7 +170,10 @@ function getSummaryTable({
   baseSubtotal,
   discountAmount,
   extraFeeAmount,
+  discountBreakdownItems,
+  extraFeeBreakdownItems,
   finalPriceOverride,
+  pricingNote,
   status,
   includeCustomer,
   customerName,
@@ -221,14 +216,35 @@ function getSummaryTable({
     ),
     getDetailRow('Base Subtotal', escapeHtml(formatMoney(baseSubtotal ?? estimatedTotal))),
     ...(discountAmount && discountAmount > 0
-      ? [getDetailRow('Discount', escapeHtml(`-${formatMoney(discountAmount)}`))]
+      ? [
+          getDetailRow(
+            'Discounts',
+            escapeHtml(`-${formatMoney(discountAmount)}`) +
+              (discountBreakdownItems?.length
+                ? `<div style="margin-top:8px; color:#6b7280; font-size:13px; line-height:1.6;">${discountBreakdownItems
+                    .map((item) => `• ${escapeHtml(item.label)}: -${escapeHtml(formatMoney(item.amount))}`)
+                    .join('<br />')}</div>`
+                : '')
+          ),
+        ]
       : []),
     ...(extraFeeAmount && extraFeeAmount > 0
-      ? [getDetailRow('Extra Fees', escapeHtml(formatMoney(extraFeeAmount)))]
+      ? [
+          getDetailRow(
+            'Extra Fees',
+            escapeHtml(formatMoney(extraFeeAmount)) +
+              (extraFeeBreakdownItems?.length
+                ? `<div style="margin-top:8px; color:#6b7280; font-size:13px; line-height:1.6;">${extraFeeBreakdownItems
+                    .map((item) => `• ${escapeHtml(item.label)}: ${escapeHtml(formatMoney(item.amount))}`)
+                    .join('<br />')}</div>`
+                : '')
+          ),
+        ]
       : []),
     ...(finalPriceOverride != null
       ? [getDetailRow('Final Price Override', escapeHtml(formatMoney(finalPriceOverride)))]
       : []),
+    ...(pricingNote?.trim() ? [getDetailRow('Pricing Note', escapeHtml(pricingNote.trim()))] : []),
     getDetailRow('Final Total', `<strong>${escapeHtml(formatMoney(estimatedTotal))}</strong>`),
     getDetailRow('Status', getStatusBadge(status)),
   ].join('');
@@ -338,7 +354,10 @@ export async function sendBookingReceivedEmail({
   baseSubtotal,
   discountAmount,
   extraFeeAmount,
+  discountBreakdownItems,
+  extraFeeBreakdownItems,
   finalPriceOverride,
+  pricingNote,
 }: BookingEmailBase) {
   try {
     await resend.emails.send({
@@ -371,7 +390,10 @@ export async function sendBookingReceivedEmail({
             baseSubtotal,
             discountAmount,
             extraFeeAmount,
+            discountBreakdownItems,
+            extraFeeBreakdownItems,
             finalPriceOverride,
+            pricingNote,
             status: 'Pending approval',
           })}
           <div style="margin-top:26px; font-size:16px; line-height:1.8; color:#111827;">
@@ -403,7 +425,10 @@ export async function sendBookingApprovedEmail({
   baseSubtotal,
   discountAmount,
   extraFeeAmount,
+  discountBreakdownItems,
+  extraFeeBreakdownItems,
   finalPriceOverride,
+  pricingNote,
 }: BookingEmailBase) {
   try {
     await resend.emails.send({
@@ -435,7 +460,10 @@ export async function sendBookingApprovedEmail({
             baseSubtotal,
             discountAmount,
             extraFeeAmount,
+            discountBreakdownItems,
+            extraFeeBreakdownItems,
             finalPriceOverride,
+            pricingNote,
             status: 'Confirmed',
           })}
           <div style="margin-top:26px; font-size:16px; line-height:1.8; color:#111827;">
@@ -453,6 +481,75 @@ export async function sendBookingApprovedEmail({
   }
 }
 
+export async function sendBookingQuoteUpdatedEmail({
+  to,
+  name,
+  vehicle,
+  pickupAt,
+  returnAt,
+  bookingId,
+  vehicleImage,
+  ratePerDay,
+  billableDays,
+  estimatedTotal,
+  baseSubtotal,
+  discountAmount,
+  extraFeeAmount,
+  discountBreakdownItems,
+  extraFeeBreakdownItems,
+  finalPriceOverride,
+  pricingNote,
+}: BookingEmailBase) {
+  try {
+    await resend.emails.send({
+      from: getFromAddress(),
+      to,
+      subject: 'Updated Booking Quote - Moon Rentals',
+      html: getEmailShell({
+        eyebrow: 'Moon Rentals',
+        title: 'Your Updated Booking Quote',
+        subtitle: 'Here is the latest pricing breakdown for your reservation.',
+        sectionLabel: 'Quote Update',
+        introHtml: `
+          <div style="font-size:16px; line-height:1.8; color:#111827; margin-bottom:22px;">
+            Hi ${escapeHtml(name)},
+            <br /><br />
+            We updated the pricing for your reservation. The current quote and itemized adjustments are below.
+          </div>
+        `,
+        bodyHtml: `
+          ${getVehicleImageBlock(vehicleImage, vehicle)}
+          ${getSummaryTable({
+            bookingId,
+            vehicle,
+            pickupAt,
+            returnAt,
+            ratePerDay,
+            billableDays,
+            estimatedTotal,
+            baseSubtotal,
+            discountAmount,
+            extraFeeAmount,
+            discountBreakdownItems,
+            extraFeeBreakdownItems,
+            finalPriceOverride,
+            pricingNote,
+            status: 'Quote updated',
+          })}
+          <div style="margin-top:26px; font-size:16px; line-height:1.8; color:#111827;">
+            If you have any questions about this quote, just reply to this email.
+            <br /><br />
+            — Moon Rentals
+          </div>
+        `,
+        footerNote: 'This quote update was sent from your reservation system.',
+      }),
+    });
+  } catch (err) {
+    console.error('sendBookingQuoteUpdatedEmail failed:', err);
+  }
+}
+
 export async function sendBookingRejectedEmail({
   to,
   name,
@@ -467,7 +564,10 @@ export async function sendBookingRejectedEmail({
   baseSubtotal,
   discountAmount,
   extraFeeAmount,
+  discountBreakdownItems,
+  extraFeeBreakdownItems,
   finalPriceOverride,
+  pricingNote,
   reason,
   mode,
 }: RejectedEmail) {
@@ -531,7 +631,10 @@ export async function sendBookingRejectedEmail({
             baseSubtotal,
             discountAmount,
             extraFeeAmount,
+            discountBreakdownItems,
+            extraFeeBreakdownItems,
             finalPriceOverride,
+            pricingNote,
             status: statusLabel,
           })}
           ${reasonBlock}
@@ -565,7 +668,10 @@ export async function sendAdminNewBookingEmail({
   baseSubtotal,
   discountAmount,
   extraFeeAmount,
+  discountBreakdownItems,
+  extraFeeBreakdownItems,
   finalPriceOverride,
+  pricingNote,
 }: AdminBookingEmail) {
   try {
     await resend.emails.send({
@@ -596,7 +702,10 @@ export async function sendAdminNewBookingEmail({
             baseSubtotal,
             discountAmount,
             extraFeeAmount,
+            discountBreakdownItems,
+            extraFeeBreakdownItems,
             finalPriceOverride,
+            pricingNote,
             status: 'Pending approval',
             includeCustomer: true,
             customerName,

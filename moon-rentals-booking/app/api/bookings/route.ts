@@ -11,6 +11,7 @@ import {
 import { recordAdminAction } from '@/lib/adminAudit';
 import { getBlocks } from '@/lib/blockStore';
 import { prisma } from '@/lib/prisma';
+import { PricingLineItem, getLineItemsTotal, getPricingBreakdownText } from '@/lib/bookingPricing';
 import {
   sendAdminNewBookingEmail,
   sendBookingApprovedEmail,
@@ -85,6 +86,9 @@ function buildReceivedLogMessage(input: {
   ratePerDay?: number | null;
   billableDays?: number | null;
   estimatedTotal?: number | null;
+  discountItems?: PricingLineItem[] | null;
+  feeItems?: PricingLineItem[] | null;
+  pricingNote?: string | null;
 }) {
   return [
     `Your booking request for ${input.vehicle} has been received and is pending review.`,
@@ -96,6 +100,11 @@ function buildReceivedLogMessage(input: {
     input.estimatedTotal != null
       ? `Estimated Total: $${input.estimatedTotal}`
       : '',
+    getPricingBreakdownText({
+      discountItems: input.discountItems,
+      feeItems: input.feeItems,
+      pricingNote: input.pricingNote,
+    }),
     `We’ll review the request and follow up as soon as possible.`,
   ]
     .filter(Boolean)
@@ -110,6 +119,9 @@ function buildApprovedLogMessage(input: {
   ratePerDay?: number | null;
   billableDays?: number | null;
   estimatedTotal?: number | null;
+  discountItems?: PricingLineItem[] | null;
+  feeItems?: PricingLineItem[] | null;
+  pricingNote?: string | null;
 }) {
   return [
     `Your booking has been approved for ${input.vehicle}.`,
@@ -121,6 +133,11 @@ function buildApprovedLogMessage(input: {
     input.estimatedTotal != null
       ? `Final Total: $${input.estimatedTotal}`
       : '',
+    getPricingBreakdownText({
+      discountItems: input.discountItems,
+      feeItems: input.feeItems,
+      pricingNote: input.pricingNote,
+    }),
     `If you have any questions before pickup, just reply to this email.`,
   ]
     .filter(Boolean)
@@ -415,6 +432,8 @@ export async function POST(req: NextRequest) {
       totalPriceSnapshot,
       discountAmount: 0,
       extraFeeAmount: 0,
+      discountBreakdownItems: [],
+      extraFeeBreakdownItems: [],
       finalPriceOverride: null,
       pricingNote: null,
     });
@@ -433,6 +452,9 @@ export async function POST(req: NextRequest) {
         ratePerDay: pricePerDaySnapshot,
         billableDays: totalDaysSnapshot,
         estimatedTotal: finalTotal,
+        discountItems: booking.discountBreakdownItems,
+        feeItems: booking.extraFeeBreakdownItems,
+        pricingNote: booking.pricingNote,
       });
 
       await sendBookingApprovedEmail({
@@ -449,7 +471,10 @@ export async function POST(req: NextRequest) {
         baseSubtotal: booking.totalPriceSnapshot,
         discountAmount: booking.discountAmount,
         extraFeeAmount: booking.extraFeeAmount,
+        discountBreakdownItems: booking.discountBreakdownItems,
+        extraFeeBreakdownItems: booking.extraFeeBreakdownItems,
         finalPriceOverride: booking.finalPriceOverride,
+        pricingNote: booking.pricingNote,
       });
 
       await recordBookingMessageLog({
@@ -483,6 +508,9 @@ export async function POST(req: NextRequest) {
         ratePerDay: pricePerDaySnapshot,
         billableDays: totalDaysSnapshot,
         estimatedTotal: totalPriceSnapshot,
+        discountItems: booking.discountBreakdownItems,
+        feeItems: booking.extraFeeBreakdownItems,
+        pricingNote: booking.pricingNote,
       });
 
       await sendBookingReceivedEmail({
@@ -499,7 +527,10 @@ export async function POST(req: NextRequest) {
         baseSubtotal: totalPriceSnapshot,
         discountAmount: 0,
         extraFeeAmount: 0,
+        discountBreakdownItems: [],
+        extraFeeBreakdownItems: [],
         finalPriceOverride: null,
+        pricingNote: null,
       });
 
       await recordBookingMessageLog({
@@ -585,14 +616,32 @@ export async function PATCH(req: NextRequest) {
     const hasPricingPayload =
       body.discountAmount !== undefined ||
       body.extraFeeAmount !== undefined ||
+      body.discountBreakdownItems !== undefined ||
+      body.extraFeeBreakdownItems !== undefined ||
       body.finalPriceOverride !== undefined ||
       body.pricingNote !== undefined;
 
     let pricingUpdatedBooking = currentBooking;
 
     if (hasPricingPayload) {
-      const discountAmount = Math.max(0, parseIntegerValue(body.discountAmount, currentBooking.discountAmount));
-      const extraFeeAmount = Math.max(0, parseIntegerValue(body.extraFeeAmount, currentBooking.extraFeeAmount));
+      const discountBreakdownItems = Array.isArray(body.discountBreakdownItems)
+        ? body.discountBreakdownItems
+        : currentBooking.discountBreakdownItems;
+      const extraFeeBreakdownItems = Array.isArray(body.extraFeeBreakdownItems)
+        ? body.extraFeeBreakdownItems
+        : currentBooking.extraFeeBreakdownItems;
+      const discountAmount = Math.max(
+        0,
+        body.discountAmount !== undefined
+          ? parseIntegerValue(body.discountAmount, currentBooking.discountAmount)
+          : getLineItemsTotal(discountBreakdownItems)
+      );
+      const extraFeeAmount = Math.max(
+        0,
+        body.extraFeeAmount !== undefined
+          ? parseIntegerValue(body.extraFeeAmount, currentBooking.extraFeeAmount)
+          : getLineItemsTotal(extraFeeBreakdownItems)
+      );
       const finalPriceOverride = parseNullableIntegerValue(body.finalPriceOverride);
       const pricingNote =
         typeof body.pricingNote === 'string'
@@ -609,6 +658,8 @@ export async function PATCH(req: NextRequest) {
       const updatedPricing = await updateBookingPricing(id, {
         discountAmount,
         extraFeeAmount,
+        discountBreakdownItems,
+        extraFeeBreakdownItems,
         finalPriceOverride,
         pricingNote,
       });
@@ -629,6 +680,8 @@ export async function PATCH(req: NextRequest) {
         metadata: {
           discountAmount,
           extraFeeAmount,
+          discountBreakdownItems,
+          extraFeeBreakdownItems,
           finalPriceOverride,
           pricingNote: pricingNote?.trim() || null,
           computedTotal: getBookingComputedTotal(updatedPricing),
@@ -706,7 +759,10 @@ export async function PATCH(req: NextRequest) {
     const baseSubtotal = updatedBooking.totalPriceSnapshot;
     const discountAmount = updatedBooking.discountAmount;
     const extraFeeAmount = updatedBooking.extraFeeAmount;
+    const discountBreakdownItems = updatedBooking.discountBreakdownItems;
+    const extraFeeBreakdownItems = updatedBooking.extraFeeBreakdownItems;
     const finalPriceOverride = updatedBooking.finalPriceOverride;
+    const pricingNote = updatedBooking.pricingNote;
     const estimatedTotal = getBookingComputedTotal(updatedBooking);
 
     if (status === 'confirmed' && pricingUpdatedBooking.status !== 'confirmed') {
@@ -719,6 +775,9 @@ export async function PATCH(req: NextRequest) {
         ratePerDay,
         billableDays,
         estimatedTotal,
+        discountItems: discountBreakdownItems,
+        feeItems: extraFeeBreakdownItems,
+        pricingNote,
       });
 
       await sendBookingApprovedEmail({
@@ -735,7 +794,10 @@ export async function PATCH(req: NextRequest) {
         baseSubtotal,
         discountAmount,
         extraFeeAmount,
+        discountBreakdownItems,
+        extraFeeBreakdownItems,
         finalPriceOverride,
+        pricingNote,
       });
 
       await recordBookingMessageLog({

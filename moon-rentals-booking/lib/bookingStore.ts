@@ -1,4 +1,5 @@
 import { prisma } from './prisma';
+import { PricingLineItem, parsePricingLineItems, serializePricingLineItems } from './bookingPricing';
 
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled';
 export type BookingMessageKind = 'manual' | 'automated' | 'resend';
@@ -36,6 +37,8 @@ export type Booking = {
   totalPriceSnapshot: number;
   discountAmount: number;
   extraFeeAmount: number;
+  discountBreakdownItems: PricingLineItem[];
+  extraFeeBreakdownItems: PricingLineItem[];
   finalPriceOverride: number | null;
   pricingNote: string | null;
   rejectionReason: string | null;
@@ -60,6 +63,8 @@ type BookingRecord = {
   totalPriceSnapshot: number;
   discountAmount: number;
   extraFeeAmount: number;
+  discountBreakdownJson: string | null;
+  extraFeeBreakdownJson: string | null;
   finalPriceOverride: number | null;
   pricingNote: string | null;
   rejectionReason: string | null;
@@ -68,6 +73,7 @@ type BookingRecord = {
   lastAdminMessagedAt: Date | null;
   createdAt: Date;
 };
+
 
 function mapBooking(booking: BookingRecord): Booking {
   return {
@@ -85,6 +91,8 @@ function mapBooking(booking: BookingRecord): Booking {
     totalPriceSnapshot: booking.totalPriceSnapshot,
     discountAmount: booking.discountAmount,
     extraFeeAmount: booking.extraFeeAmount,
+    discountBreakdownItems: parsePricingLineItems(booking.discountBreakdownJson),
+    extraFeeBreakdownItems: parsePricingLineItems(booking.extraFeeBreakdownJson),
     finalPriceOverride: booking.finalPriceOverride,
     pricingNote: booking.pricingNote,
     rejectionReason: booking.rejectionReason,
@@ -165,6 +173,8 @@ export async function addBooking(
     totalPriceSnapshot: number;
     discountAmount?: number;
     extraFeeAmount?: number;
+    discountBreakdownItems?: PricingLineItem[];
+    extraFeeBreakdownItems?: PricingLineItem[];
     finalPriceOverride?: number | null;
     pricingNote?: string | null;
   }
@@ -184,6 +194,8 @@ export async function addBooking(
       totalPriceSnapshot: booking.totalPriceSnapshot,
       discountAmount: booking.discountAmount ?? 0,
       extraFeeAmount: booking.extraFeeAmount ?? 0,
+      discountBreakdownJson: serializePricingLineItems(booking.discountBreakdownItems),
+      extraFeeBreakdownJson: serializePricingLineItems(booking.extraFeeBreakdownItems),
       finalPriceOverride: booking.finalPriceOverride ?? null,
       pricingNote: booking.pricingNote?.trim() || null,
     },
@@ -223,6 +235,8 @@ export async function updateBookingPricing(
   input: {
     discountAmount: number;
     extraFeeAmount: number;
+    discountBreakdownItems?: PricingLineItem[];
+    extraFeeBreakdownItems?: PricingLineItem[];
     finalPriceOverride?: number | null;
     pricingNote?: string | null;
   }
@@ -233,6 +247,8 @@ export async function updateBookingPricing(
       data: {
         discountAmount: input.discountAmount,
         extraFeeAmount: input.extraFeeAmount,
+        discountBreakdownJson: serializePricingLineItems(input.discountBreakdownItems),
+        extraFeeBreakdownJson: serializePricingLineItems(input.extraFeeBreakdownItems),
         finalPriceOverride: input.finalPriceOverride ?? null,
         pricingNote: input.pricingNote?.trim() || null,
       },

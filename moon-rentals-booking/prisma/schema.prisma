@@ -72,6 +72,8 @@ model Booking {
   totalPriceSnapshot      Int
   discountAmount          Int                 @default(0)
   extraFeeAmount          Int                 @default(0)
+  discountBreakdownJson   String?
+  extraFeeBreakdownJson   String?
   finalPriceOverride      Int?
   pricingNote             String?
   rejectionReason         String?
